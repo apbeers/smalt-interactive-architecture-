@@ -1,0 +1,89 @@
+{
+  "title": "smalt platform architecture",
+  "siteUrl": "https://apbeers.github.io/smalt-interactive-architecture-/",
+  "owner": "stenhoor",
+  "branch": "main",
+  "parser": {
+    "repo": "stenhoor/smaltty",
+    "ref": "e6b5efc1d5e78bc47b0789b11124c0a2427f2fe2"
+  },
+  "layers": [
+    { "id": "engine", "name": "Engines", "color": "--smalt-500", "about": "The databases everything else runs on." },
+    { "id": "plugin", "name": "Engine plugins", "color": "--smalt-300", "about": "Optional formats, sources and hosts for smaltdb, in their own repositories (smaltdb ADR 0012)." },
+    { "id": "language", "name": "Languages", "color": "--layer-language", "about": "Ways to talk to the engine: SQL, dataframes, a typed API." },
+    { "id": "family", "name": "Family code", "color": "--kiln-500", "about": "The family's own implementations that the products are built with, such as TypeScript." },
+    { "id": "kit", "name": "Kits", "color": "--layer-kit", "about": "Shared browser code for the apps." },
+    { "id": "tool", "name": "User tools", "color": "--layer-tool", "about": "The apps people use." },
+    { "id": "brand", "name": "Brand", "color": "--text-3", "about": "Brand assets, tokens and the family site." },
+    { "id": "other", "name": "Other", "color": "--border", "about": "Repositories with no code yet." }
+  ],
+  "repos": [
+    { "name": "smaltdb", "layer": "engine" },
+    { "name": "smaltcy", "layer": "engine" },
+    { "name": "smaltdb-io", "layer": "plugin", "plugin": true },
+    { "name": "smaltdb-external", "layer": "plugin", "plugin": true },
+    { "name": "smaltdb-parquet", "layer": "plugin", "plugin": true },
+    { "name": "smaltdb-node", "layer": "plugin", "plugin": true },
+    { "name": "smaltdb-sucrase", "layer": "plugin", "plugin": true },
+    { "name": "smaltql", "layer": "language" },
+    { "name": "smaltdf", "layer": "language" },
+    { "name": "smaltts", "layer": "language" },
+    { "name": "smaltty", "layer": "family" },
+    { "name": "smaltkit", "layer": "kit" },
+    { "name": "smaltui", "layer": "tool" },
+    { "name": "smaltbi", "layer": "tool" },
+    { "name": "smaltnb", "layer": "tool" },
+    { "name": "smaltfl", "layer": "tool" },
+    { "name": "smalt-brand", "layer": "brand" },
+    { "name": "smalt-geo", "layer": "other" },
+    { "name": "smalton", "layer": "other" }
+  ],
+  "rules": [
+    {
+      "id": "smaltdb-core-imports-no-plugin",
+      "repo": "smaltdb",
+      "from": ["src/**"],
+      "forbid": ["@smaltdb/*", "@smaltworks/smaltdb-*"],
+      "severity": "error",
+      "why": "Plugins live in their own repositories: never import a plugin from src/.",
+      "source": "smaltdb CLAUDE.md, ADR 0012"
+    },
+    {
+      "id": "smaltdb-engine-carries-no-language",
+      "repo": "smaltdb",
+      "from": ["src/**"],
+      "forbid": ["@smaltworks/smaltql", "smaltql"],
+      "severity": "error",
+      "why": "SQL is smaltql's: the engine carries no language.",
+      "source": "smaltdb CLAUDE.md, ADR 0015"
+    },
+    {
+      "id": "smaltkit-browser-first",
+      "repo": "smaltkit",
+      "from": ["src/**"],
+      "forbid": ["node:*"],
+      "severity": "error",
+      "why": "Browser-first: no Node dependencies in src/.",
+      "source": "smaltkit CLAUDE.md"
+    },
+    {
+      "id": "smaltkit-names-no-app",
+      "repo": "smaltkit",
+      "from": ["src/**"],
+      "forbid": ["smaltui", "smaltui/*", "smaltbi", "smaltbi/*"],
+      "severity": "error",
+      "why": "Shared code depends on no app: the apps depend on the kit.",
+      "source": "smaltkit CLAUDE.md"
+    },
+    {
+      "id": "plugins-import-no-other-plugin",
+      "repo": "smaltdb-*",
+      "from": ["src/**"],
+      "forbid": ["@smaltdb/*"],
+      "allowSameRepo": true,
+      "severity": "warning",
+      "why": "A plugin depends on smaltdb's plugin interface, not on another plugin, so each stays optional.",
+      "source": "smaltdb ADR 0012"
+    }
+  ]
+}

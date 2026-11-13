@@ -1,0 +1,65 @@
+# Regenerates the architecture from stenhoor/* main branches and publishes it to GitHub Pages.
+# No model and no npm packages: git, Node and smaltty's source at the commit pinned in arch.config.json.
+name: Architecture
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  # The mapped repositories can ask for a rebuild after a push to their main:
+  #   POST /repos/<owner>/<this repo>/dispatches  {"event_type": "smalt-updated"}
+  repository_dispatch:
+    types: [smalt-updated]
+  schedule:
+    - cron: '23 */6 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check out the repositories and smaltty
+        run: node bin/run.mjs fetch
+      - name: Test the analyzer
+        run: npm test
+      - name: Build the site
+        # The live site is the previous build: what changed is reported against it.
+        run: node bin/run.mjs build --previous "${{ vars.SITE_URL || format('https://{0}.github.io/{1}/', github.repository_owner, github.event.repository.name) }}"
+      - name: Summary
+        run: |
+          {
+            echo '```'
+            node bin/arch.mjs summary
+            echo
+            node bin/arch.mjs issues --severity error
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-pages-artifact@v3
+        if: github.event_name != 'pull_request'
+        with:
+          path: _site
+
+  deploy:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,13 @@
+{
+  "summary": "The engine: an embedded database for browsers that runs in a Web Worker, keeps data in OPFS and runs plans. It carries no language: SQL is smaltql's.",
+  "responsibilities": [
+    "The client (open(), Database) on the main thread, talking to the engine worker over the protocol in src/shared/",
+    "Planning and execution, B-trees, the pager and WAL, the catalog, the VFS, and the worker server and runtime",
+    "The plugin interface (plugin API version 1 is stable: additive changes only, or a new version; ADR 0013)",
+    "smaltdb/language: what a language needs from the engine; a change smaltql needs lands here first"
+  ],
+  "notes": [
+    "Plugins live in their own repositories (ADR 0012); core never imports one.",
+    "SQL in tests, benchmarks and browser tests comes from the @smaltworks/smaltql pin in packed.json."
+  ]
+}
