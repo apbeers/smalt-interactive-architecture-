@@ -3,6 +3,11 @@
 This repository builds an interactive architecture of the smalt family (stenhoor/* main branches) and publishes it to
 GitHub Pages. Read README.md for the pipeline and docs/AGENTS.md for how agents use the output.
 
+## Workflow
+
+No pull requests (owner, 2026-11-13): when work is done and `npm test` passes, commit and push straight to `main`.
+A push to `main` rebuilds the site and publishes it to GitHub Pages (`.github/workflows/pages.yml`).
+
 ## Commands
 
 | Command | What it does |
