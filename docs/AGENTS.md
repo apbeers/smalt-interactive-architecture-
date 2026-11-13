@@ -32,7 +32,7 @@ previous build: API removed or changed (with the consumers that use it), links a
 | Declaration | `smaltdb/src/client/index.ts#open` |
 | Outside package | `ext:hyparquet`, `node:fs` |
 
-On the site, `#/n/<id>` opens a node.
+On the site, `#/e/<id>` opens a node in the explorer (add `?view=3d` for the 3D map) and `#/n/<id>` its details page.
 
 ## The query tool
 

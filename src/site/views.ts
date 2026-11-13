@@ -3,15 +3,14 @@ import type { DirNode, Edge, EntryNode, ExternalNode, FileNode, IndexData, Issue
 import { edgeKinds, find, issuesFor, loadRepo, type RepoView } from './data.js';
 import { code, h, link, nodeHref, plural } from './dom.js';
 import { graphView, type GEdge, type GNode } from './graphview.js';
-import { rankNodes } from './layout.js';
+import { dirLevel, edgeTitle, layerColor, layerName, LAYER_ORDER, platformLevel, savedKinds, saveKinds } from './levels.js';
 
 type El = HTMLElement;
 
 // ---------------------------------------------------------------------------------------------------------------
 // Shared pieces
 
-export const layerColor = (idx: IndexData, layer: string): string => `var(${idx.layers.find((l) => l.id === layer)?.color ?? '--text-3'})`;
-const layerName = (idx: IndexData, layer: string): string => idx.layers.find((l) => l.id === layer)?.name ?? layer;
+export { layerColor };
 
 export function repoNode(idx: IndexData, name: string): RepoNode | undefined {
   return idx.repos.find((r) => r.name === name);
@@ -26,7 +25,6 @@ export function sourceUrl(idx: IndexData, fileId: string, line?: number): string
   return `${repo.url}/blob/${repo.commit}/${path}${line ? `#L${line}` : ''}`;
 }
 
-const clip = (text: string, max: number): string => (text.length <= max ? text : text.slice(0, text.lastIndexOf(' ', max - 1) > 0 ? text.lastIndexOf(' ', max - 1) : max - 1) + '…');
 const chip = (text: string, cls = '', style?: string): El => h('span', { class: `chip ${cls}`, style }, text);
 const sevChip = (sev: string): El => chip(sev, `sev sev-${sev}`);
 
@@ -47,7 +45,9 @@ export function breadcrumbs(id: string, idx: IndexData): El {
     });
     if (symbol) parts.push([nodeHref(id), symbol]);
   }
-  return h('nav', { class: 'crumbs', 'aria-label': 'Breadcrumbs' }, parts.map(([href, text], i) => [i ? h('span', { class: 'sep', 'aria-hidden': 'true' }, '›') : null, i === parts.length - 1 ? h('span', { 'aria-current': 'page' }, text) : h('a', { href }, text)]));
+  const explorable = !id.startsWith('entry:') && !id.startsWith('ext:') && !id.startsWith('node:');
+  return h('nav', { class: 'crumbs', 'aria-label': 'Breadcrumbs' }, parts.map(([href, text], i) => [i ? h('span', { class: 'sep', 'aria-hidden': 'true' }, '›') : null, i === parts.length - 1 ? h('span', { 'aria-current': 'page' }, text) : h('a', { href: i === 0 ? '#/' : href }, text)]),
+    explorable ? h('a', { class: 'explore-link', href: `#/e/${encodeURIComponent(id)}` }, 'Explore here') : null);
 }
 
 export function issueList(idx: IndexData, issues: Issue[], options: { showNode?: boolean; limit?: number } = {}): El {
@@ -75,35 +75,8 @@ function section(title: string, ...children: (El | El[] | null | false | undefin
   return h('section', { class: 'section' }, h('h2', null, title), ...children);
 }
 
-function issueBadge(idx: IndexData, id: string, deep: boolean): GNode['badge'] {
-  const list = issuesFor(idx, id, deep);
-  const errors = list.filter((i) => i.severity === 'error').length;
-  const warnings = list.filter((i) => i.severity === 'warning').length;
-  if (errors) return { count: errors, severity: 'error' };
-  if (warnings) return { count: warnings, severity: 'warning' };
-  return undefined;
-}
-
-function edgeTitle(e: { kind: string; weight: number; evidence: Edge['evidence'] }, from: string, to: string): string {
-  const ev = e.evidence.slice(0, 6).map((x) => `  ${x.at}${x.line ? `:${x.line}` : ''}  ${x.text}`).join('\n');
-  return `${from} → ${to}\n${edgeKinds[e.kind]?.label ?? e.kind}${e.weight > 1 ? ` ×${e.weight}` : ''}\n${ev}`;
-}
-
 // ---------------------------------------------------------------------------------------------------------------
 // Platform
-
-const LAYER_ORDER = ['tool', 'kit', 'language', 'family', 'plugin', 'engine', 'brand', 'other'];
-const DEFAULT_KINDS = new Set(['import', 'npm', 'pin', 'runtime', 'worker']);
-
-function savedKinds(): Set<string> {
-  try {
-    const raw = localStorage.getItem('arch.kinds');
-    if (raw) return new Set(JSON.parse(raw) as string[]);
-  } catch {
-    // storage unavailable: use the defaults
-  }
-  return new Set(DEFAULT_KINDS);
-}
 
 export function platformView(idx: IndexData): El {
   const kinds = savedKinds();
@@ -116,50 +89,16 @@ export function platformView(idx: IndexData): El {
 
   const graphHolder = h('div');
   const draw = (): void => {
-    const rankOf = (layer: string): number => {
-      const i = LAYER_ORDER.indexOf(layer);
-      return i < 0 ? LAYER_ORDER.length : i;
-    };
-    const nodes: GNode[] = withCode.map((r) => ({
-      id: r.id,
-      label: r.name,
-      sub: r.whatItIs ?? (r.packageName && r.packageName !== r.name ? r.packageName : clip(r.description ?? '', 36)),
-      color: layerColor(idx, r.layer),
-      rank: rankOf(r.layer),
-      badge: issueBadge(idx, r.id, true),
-    }));
-    const merged = new Map<string, GEdge>();
-    for (const e of idx.edges) {
-      if (!kinds.has(e.kind)) continue;
-      const key = `${e.from}|${e.to}|${e.kind}`;
-      merged.set(key, { from: e.from, to: e.to, kind: e.kind, weight: e.weight, title: edgeTitle(e, e.from, e.to) });
-    }
-    const rankLabels = new Map<number, string>();
-    for (const r of withCode) rankLabels.set(rankOf(r.layer), layerName(idx, r.layer));
-    graphHolder.replaceChildren(graphView(nodes, [...merged.values()], { rankLabels, maxPerRow: 7 }));
+    const level = platformLevel(idx, kinds);
+    graphHolder.replaceChildren(graphView(level.nodes, level.edges, level.options));
   };
   draw();
-
-  const kindsPresent = [...new Set(idx.edges.map((e) => e.kind))];
-  const toggles = h('fieldset', { class: 'toggles' }, h('legend', null, 'Show links'), kindsPresent.map((k) => {
-    const input = h('input', { type: 'checkbox', checked: kinds.has(k), onchange: () => {
-      if (input.checked) kinds.add(k);
-      else kinds.delete(k);
-      try {
-        localStorage.setItem('arch.kinds', JSON.stringify([...kinds]));
-      } catch {
-        // not remembered: fine
-      }
-      draw();
-    } });
-    return h('label', { class: `toggle edge-key edge-${k}`, title: edgeKinds[k]?.about ?? k }, input, h('span', { class: 'swatch', 'aria-hidden': 'true' }), edgeKinds[k]?.label ?? k);
-  }));
 
   const layers = idx.layers.filter((l) => idx.repos.some((r) => r.layer === l.id)).sort((a, b) => LAYER_ORDER.indexOf(a.id) - LAYER_ORDER.indexOf(b.id));
   return h('div', { class: 'page' },
     h('header', { class: 'page-head' },
-      h('h1', null, 'The platform'),
-      h('p', { class: 'lede' }, `${plural(idx.repos.length, 'repository', 'repositories')} from ${new URL(idx.repos[0]?.url ?? 'https://github.com/').pathname.split('/')[1]}'s main branches: ${plural(totalFiles, 'file')}, ${plural(totalLoc, 'line')} of code, ${plural(idx.entries.length, 'entry point')}. Click a product to drill in; hover to trace its links.`),
+      h('h1', null, 'Overview'),
+      h('p', { class: 'lede' }, `${plural(idx.repos.length, 'repository', 'repositories')} from ${new URL(idx.repos[0]?.url ?? 'https://github.com/').pathname.split('/')[1]}'s main branches: ${plural(totalFiles, 'file')}, ${plural(totalLoc, 'line')} of code, ${plural(idx.entries.length, 'entry point')}. `, h('a', { href: '#/' }, 'Explore it'), ' to zoom from the platform down to single declarations.'),
       h('div', { class: 'stats' },
         h('a', { class: 'stat sev-error', href: '#/issues?severity=error' }, h('strong', null, String(counts.error)), ' errors'),
         h('a', { class: 'stat sev-warning', href: '#/issues?severity=warning' }, h('strong', null, String(counts.warning)), ' warnings'),
@@ -167,7 +106,7 @@ export function platformView(idx: IndexData): El {
         h('span', { class: 'stat muted' }, `Generated ${new Date(idx.generatedAt).toLocaleString()}`),
       ),
     ),
-    toggles,
+    edgeToggles(idx, kinds, draw),
     graphHolder,
     section('Layers', h('div', { class: 'cards' }, layers.map((l) => h('div', { class: 'card', style: `--accent-bar:var(${l.color})` },
       h('h3', null, l.name), h('p', { class: 'muted' }, l.about),
@@ -178,82 +117,27 @@ export function platformView(idx: IndexData): El {
   );
 }
 
-// ---------------------------------------------------------------------------------------------------------------
-// Repository and directory: the children of a directory, and how they depend on each other and on the outside.
+/** Checkboxes for the kinds of links between repositories; `changed` redraws. */
+export function edgeToggles(idx: IndexData, kinds: Set<string>, changed: () => void): El {
+  const kindsPresent = [...new Set(idx.edges.map((e) => e.kind))];
+  return h('fieldset', { class: 'toggles' }, h('legend', null, 'Show links'), kindsPresent.map((k) => {
+    const input = h('input', { type: 'checkbox', checked: kinds.has(k), onchange: () => {
+      if (input.checked) kinds.add(k);
+      else kinds.delete(k);
+      saveKinds(kinds);
+      changed();
+    } });
+    return h('label', { class: `toggle edge-key edge-${k}`, title: edgeKinds[k]?.about ?? k }, input, h('span', { class: 'swatch', 'aria-hidden': 'true' }), edgeKinds[k]?.label ?? k);
+  }));
+}
 
-const KIND_RANK: Record<string, number> = { import: 0, reexport: 1, worker: 2, 'dynamic-import': 3, 'type-import': 4 };
+// ---------------------------------------------------------------------------------------------------------------
+// Repository and directory
 
 export function childGraph(idx: IndexData, repo: RepoView, dirId: string): El {
-  const dir = repo.byId.get(dirId) as DirNode;
-  const prefix = dir.path ? dir.path + '/' : '';
-  const childDirs = repo.dirs.filter((d) => d.parent === dirId);
-  const childFiles = repo.files.filter((f) => f.parent === dirId);
-  const childOf = (fileId: string): string | undefined => {
-    const f = repo.byId.get(fileId) as FileNode | undefined;
-    if (!f || !f.path.startsWith(prefix)) return undefined;
-    const rest = f.path.slice(prefix.length);
-    return rest.includes('/') ? `${repo.repo}/${prefix}${rest.split('/')[0]}/` : f.id;
-  };
-  const outsideOf = (target: string): { id: string; label: string; href: string } | undefined => {
-    const name = target.split(/[/#:]/)[0]!;
-    if (target.startsWith('entry:')) {
-      const e = idx.entries.find((x) => x.id === target);
-      return e ? { id: `repo:${e.repo}`, label: e.repo, href: nodeHref(e.repo) } : undefined;
-    }
-    if (target.startsWith('ext:') || target.startsWith('node:')) return undefined;
-    if (name !== repo.repo) return { id: `repo:${name}`, label: name, href: nodeHref(name) };
-    const path = target.slice(name.length + 1);
-    const top = path.includes('/') ? path.split('/')[0] + '/' : path;
-    return { id: `${repo.repo}/${top}`, label: `${top} (outside)`, href: nodeHref(`${repo.repo}/${top}`) };
-  };
-  const nodes = new Map<string, GNode>();
-  for (const d of childDirs) nodes.set(d.id, { id: d.id, label: d.name + '/', sub: `${plural(d.files, 'file')}, ${d.loc.toLocaleString()} lines`, color: 'var(--primary)', badge: issueBadge(idx, d.id, true) });
-  for (const f of childFiles) nodes.set(f.id, { id: f.id, label: f.name, sub: `${f.role}, ${f.loc.toLocaleString()} lines`, color: f.role === 'src' ? 'var(--layer-kit)' : 'var(--text-3)', badge: issueBadge(idx, f.id, false) });
-  const edges = new Map<string, { from: string; to: string; kind: string; weight: number; evidence: Edge['evidence'] }>();
-  const add = (from: string, to: string, e: Edge): void => {
-    if (from === to) return;
-    const key = `${from}|${to}`;
-    const cur = edges.get(key);
-    if (!cur) edges.set(key, { from, to, kind: e.kind, weight: e.weight, evidence: [...e.evidence] });
-    else {
-      cur.weight += e.weight;
-      if ((KIND_RANK[e.kind] ?? 9) < (KIND_RANK[cur.kind] ?? 9)) cur.kind = e.kind;
-      if (cur.evidence.length < 12) cur.evidence.push(...e.evidence.slice(0, 2));
-    }
-  };
-  const outside = (o: { id: string; label: string; href: string }): string => {
-    if (!nodes.has(o.id)) nodes.set(o.id, { id: o.id, label: o.label, href: o.href, muted: true, color: o.id.startsWith('repo:') ? layerColor(idx, repoNode(idx, o.label)?.layer ?? '') : 'var(--text-3)' });
-    return o.id;
-  };
-  for (const e of [...repo.edges, ...repo.inbound]) {
-    const from = childOf(e.from);
-    const to = childOf(e.to);
-    if (from && to) add(from, to, e);
-    else if (from) {
-      const o = outsideOf(e.to);
-      if (o) add(from, outside(o), e);
-    } else if (to) {
-      const o = outsideOf(e.from);
-      if (o) add(outside(o), to, e);
-    }
-  }
-  const gEdges: GEdge[] = [...edges.values()].map((e) => ({ ...e, muted: !!nodes.get(e.from)?.muted || !!nodes.get(e.to)?.muted, title: edgeTitle(e, nodes.get(e.from)?.label ?? e.from, nodes.get(e.to)?.label ?? e.to) }));
-  if (!childDirs.length && !childFiles.length) return h('p', { class: 'muted' }, 'Empty.');
-  // Ranks: the children by their own imports, folded into at most five rows; what uses them from outside on a row
-  // above, what they use outside on a row below.
-  const inner = [...nodes.values()].filter((n) => !n.muted).map((n) => n.id);
-  const innerSet = new Set(inner);
-  const innerRanks = rankNodes(inner, gEdges.filter((e) => innerSet.has(e.from) && innerSet.has(e.to)));
-  const deepest = Math.max(0, ...innerRanks.values());
-  const ROWS = 5;
-  const fold = (r: number): number => (deepest < ROWS ? r : Math.round((r * (ROWS - 1)) / deepest));
-  const bottom = Math.min(deepest, ROWS - 1) + 2;
-  const ranked = [...nodes.values()].map((n) => {
-    if (!n.muted) return { ...n, rank: fold(innerRanks.get(n.id) ?? 0) + 1 };
-    const usesUs = gEdges.some((e) => e.from === n.id);
-    return { ...n, rank: usesUs ? 0 : bottom };
-  });
-  return graphView(ranked, gEdges, { maxPerRow: 8 });
+  const level = dirLevel(idx, repo, dirId);
+  if (!level.nodes.length) return h('p', { class: 'muted' }, 'Empty.');
+  return graphView(level.nodes, level.edges, level.options);
 }
 
 function fileTable(idx: IndexData, files: FileNode[]): El {

@@ -1,7 +1,7 @@
-// Draws a layered graph in SVG: pan by dragging, zoom with the wheel or the buttons, hover to see a node's links,
-// click (or Enter) to open it.
+// Draws a layered graph in SVG. drawLevel makes one level's group (nodes, edges, hover); graphView wraps it in a
+// pannable, zoomable figure for the detail pages; the explorer animates between levels' groups in one SVG.
 import { h, s, nodeHref } from './dom.js';
-import { edgePath, layout } from './layout.js';
+import { edgePath, layout, type Layout } from './layout.js';
 
 export interface GNode {
   readonly id: string;
@@ -13,6 +13,8 @@ export interface GNode {
   readonly badge?: { count: number; severity: 'error' | 'warning' | 'info' };
   /** Where a click goes; defaults to the node's page. */
   readonly href?: string;
+  /** The node id the explorer opens for it, when not its own id (a dimmed repository stands for that repository). */
+  readonly target?: string;
   readonly muted?: boolean;
 }
 
@@ -31,9 +33,25 @@ export interface GraphOptions {
   readonly rankLabels?: Map<number, string>;
 }
 
+export interface Rect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface DrawnLevel {
+  readonly group: SVGGElement;
+  readonly layout: Layout;
+  /** The drawing's extent, padding and rank labels included. */
+  readonly bounds: Rect;
+  readonly nodeEls: Map<string, SVGElement>;
+}
+
+export const EDGE_KINDS = ['import', 'dev-import', 'type-import', 'dynamic-import', 'reexport', 'worker', 'npm', 'dev', 'pin', 'packed', 'runtime'];
 const CHAR = 7.2;
 
-export function graphView(nodes: GNode[], edges: GEdge[], options: GraphOptions = {}): HTMLElement {
+export function layoutGraph(nodes: GNode[], edges: GEdge[], options: GraphOptions = {}): { layout: Layout; edges: GEdge[]; bounds: Rect } {
   const sized = nodes.map((n) => ({
     id: n.id,
     width: Math.round(Math.min(280, Math.max(110, Math.max(n.label.length * (CHAR + 0.6), (n.sub ?? '').length * 6.2) + 34))),
@@ -45,13 +63,28 @@ export function graphView(nodes: GNode[], edges: GEdge[], options: GraphOptions 
   const lay = layout(sized, drawn, { maxPerRow: options.maxPerRow ?? 8, gapY: options.rankLabels ? 84 : 64 });
   const pad = 40;
   const labelPad = options.rankLabels ? 150 : 0;
-  const W = lay.width + pad * 2 + labelPad;
-  const H = lay.height + pad * 2;
+  // The layout can leave room on the left after nudging rows toward their links: measure from the leftmost box.
+  const minX = Math.min(0, ...[...lay.nodes.values()].map((p) => p.x));
+  const left = lay.nodes.size ? Math.min(...[...lay.nodes.values()].map((p) => p.x)) : 0;
+  const x0 = Math.max(minX, left);
+  return { layout: lay, edges: drawn, bounds: { x: x0 - pad - labelPad, y: -pad, w: lay.width - x0 + pad * 2 + labelPad, h: Math.max(lay.height, 40) + pad * 2 } };
+}
 
-  const viewport = s('g', { class: 'viewport' });
+/** Arrowheads for every kind of link, once per SVG. */
+export function arrowDefs(): SVGElement {
+  const defs = s('defs');
+  for (const kind of EDGE_KINDS) {
+    defs.append(s('marker', { id: `arrow-${kind}`, viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse' },
+      s('path', { d: 'M0,0 L10,5 L0,10 z', class: `arrow edge-${kind}` })));
+  }
+  return defs;
+}
+
+export function drawLevel(nodes: GNode[], edges: GEdge[], options: GraphOptions = {}): DrawnLevel {
+  const { layout: lay, edges: drawn, bounds } = layoutGraph(nodes, edges, options);
+  const group = s('g', { class: 'level' }) as SVGGElement;
   const edgeLayer = s('g', { class: 'edges' });
   const nodeLayer = s('g', { class: 'nodes' });
-  viewport.append(edgeLayer, nodeLayer);
 
   if (options.rankLabels) {
     // Each rank's label sits just left of the leftmost node on its first row.
@@ -63,9 +96,10 @@ export function graphView(nodes: GNode[], edges: GEdge[], options: GraphOptions 
     }
     for (const [rank, row] of rows) {
       const label = options.rankLabels.get(rank);
-      if (label) viewport.append(s('text', { class: 'rank-label', x: row.x - 16, y: row.y + row.h / 2 + 4, 'text-anchor': 'end' }, label));
+      if (label) group.append(s('text', { class: 'rank-label', x: row.x - 16, y: row.y + row.h / 2 + 4, 'text-anchor': 'end' }, label));
     }
   }
+  group.append(edgeLayer, nodeLayer);
 
   const max = Math.max(1, ...drawn.map((e) => e.weight));
   const edgeEls = new Map<string, SVGElement[]>();
@@ -98,14 +132,6 @@ export function graphView(nodes: GNode[], edges: GEdge[], options: GraphOptions 
     nodeEls.set(n.id, g);
   }
 
-  const svg = s('svg', { class: 'graph', role: 'img', 'aria-label': 'Dependency graph', viewBox: `0 0 ${W} ${H}` });
-  const defs = s('defs');
-  for (const kind of new Set(drawn.map((e) => e.kind))) {
-    defs.append(s('marker', { id: `arrow-${kind}`, viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse' },
-      s('path', { d: 'M0,0 L10,5 L0,10 z', class: `arrow edge-${kind}` })));
-  }
-  svg.append(defs, viewport);
-
   // Hover: light up a node's edges and neighbours.
   const neighbours = new Map<string, Set<string>>();
   for (const e of drawn) {
@@ -113,7 +139,7 @@ export function graphView(nodes: GNode[], edges: GEdge[], options: GraphOptions 
     (neighbours.get(e.to) ?? neighbours.set(e.to, new Set()).get(e.to)!).add(e.from);
   }
   const focus = (id: string | null): void => {
-    svg.classList.toggle('focused', id !== null);
+    group.classList.toggle('focused', id !== null);
     for (const [nid, el] of nodeEls) el.classList.toggle('lit', id !== null && (nid === id || !!neighbours.get(id)?.has(nid)));
     for (const el of edgeLayer.children) el.classList.remove('lit');
     if (id) for (const el of edgeEls.get(id) ?? []) el.classList.add('lit');
@@ -124,22 +150,24 @@ export function graphView(nodes: GNode[], edges: GEdge[], options: GraphOptions 
     el.addEventListener('mouseleave', () => focus(null));
     el.addEventListener('blur', () => focus(null));
   }
+  return { group, layout: lay, bounds, nodeEls };
+}
 
-  // Pan and zoom, by changing the viewBox.
-  let vb = { x: -pad - labelPad, y: -pad, w: W, h: H };
-  const apply = (): void => svg.setAttribute('viewBox', `${vb.x} ${vb.y} ${vb.w} ${vb.h}`);
-  const fit = (): void => {
-    vb = { x: -pad - labelPad, y: -pad, w: W, h: H };
-    apply();
-  };
-  fit();
-  const zoom = (factor: number, cx = vb.x + vb.w / 2, cy = vb.y + vb.h / 2): void => {
-    const w = Math.min(W * 4, Math.max(120, vb.w * factor));
-    const k = w / vb.w;
-    vb = { x: cx - (cx - vb.x) * k, y: cy - (cy - vb.y) * k, w, h: vb.h * k };
-    apply();
-  };
+/** The viewBox showing `r` whole in a viewport of aspect `aspect` (width / height), centred. */
+export function fitRect(r: Rect, aspect: number): Rect {
+  if (!Number.isFinite(aspect) || aspect <= 0) return { ...r };
+  if (r.w / r.h > aspect) {
+    const h = r.w / aspect;
+    return { x: r.x, y: r.y - (h - r.h) / 2, w: r.w, h };
+  }
+  const w = r.h * aspect;
+  return { x: r.x - (w - r.w) / 2, y: r.y, w, h: r.h };
+}
+
+/** Drag to pan, wheel (with Ctrl or ⌘ unless `always`) to zoom, on an SVG whose viewBox `get`/`set` manage. */
+export function panZoom(svg: SVGSVGElement, get: () => Rect, set: (r: Rect) => void, always: boolean): void {
   const toUser = (ev: { clientX: number; clientY: number }): [number, number] => {
+    const vb = get();
     const r = svg.getBoundingClientRect();
     const scale = Math.max(vb.w / r.width, vb.h / r.height);
     const offX = (r.width * scale - vb.w) / 2;
@@ -147,30 +175,29 @@ export function graphView(nodes: GNode[], edges: GEdge[], options: GraphOptions 
     return [vb.x - offX + (ev.clientX - r.left) * scale, vb.y - offY + (ev.clientY - r.top) * scale];
   };
   svg.addEventListener('wheel', (ev) => {
-    if (!ev.ctrlKey && !ev.metaKey && !svg.classList.contains('zoomed')) return; // let the page scroll until the graph is used
+    if (!always && !ev.ctrlKey && !ev.metaKey && !svg.classList.contains('zoomed')) return; // let the page scroll until the graph is used
     ev.preventDefault();
     const [cx, cy] = toUser(ev);
-    zoom(Math.exp(ev.deltaY * 0.0015), cx, cy);
+    const vb = get();
+    const k = Math.exp(ev.deltaY * 0.0015);
+    set({ x: cx - (cx - vb.x) * k, y: cy - (cy - vb.y) * k, w: vb.w * k, h: vb.h * k });
   }, { passive: false });
-  let drag: { x: number; y: number; vb: typeof vb; moved: boolean } | null = null;
+  let drag: { x: number; y: number; vb: Rect; moved: boolean } | null = null;
   svg.addEventListener('pointerdown', (ev) => {
     if (ev.button !== 0) return;
-    drag = { x: ev.clientX, y: ev.clientY, vb: { ...vb }, moved: false };
+    drag = { x: ev.clientX, y: ev.clientY, vb: { ...get() }, moved: false };
   });
   svg.addEventListener('pointermove', (ev) => {
     if (!drag) return;
     const r = svg.getBoundingClientRect();
-    const scale = Math.max(vb.w / r.width, vb.h / r.height);
+    const scale = Math.max(drag.vb.w / r.width, drag.vb.h / r.height);
     const dx = (ev.clientX - drag.x) * scale;
     const dy = (ev.clientY - drag.y) * scale;
-    if (Math.abs(dx) + Math.abs(dy) > 4) {
+    if (Math.abs(ev.clientX - drag.x) + Math.abs(ev.clientY - drag.y) > 4) {
       if (!drag.moved) svg.setPointerCapture(ev.pointerId);
       drag.moved = true;
     }
-    if (drag.moved) {
-      vb = { ...drag.vb, x: drag.vb.x - dx, y: drag.vb.y - dy };
-      apply();
-    }
+    if (drag.moved) set({ ...drag.vb, x: drag.vb.x - dx, y: drag.vb.y - dy });
   });
   const endDrag = (ev: PointerEvent): void => {
     if (drag?.moved) {
@@ -188,13 +215,37 @@ export function graphView(nodes: GNode[], edges: GEdge[], options: GraphOptions 
   };
   svg.addEventListener('pointerup', endDrag);
   svg.addEventListener('pointercancel', endDrag);
+}
 
-  const button = (label: string, title: string, fn: () => void): HTMLButtonElement => h('button', { type: 'button', class: 'icon-button', title, 'aria-label': title, onclick: fn }, label);
+export const toolButton = (label: string, title: string, fn: () => void): HTMLButtonElement =>
+  h('button', { type: 'button', class: 'icon-button', title, 'aria-label': title, onclick: fn }, label);
+
+/** A graph as a figure on a page: fits its box, pans, zooms. */
+export function graphView(nodes: GNode[], edges: GEdge[], options: GraphOptions = {}): HTMLElement {
+  const drawn = drawLevel(nodes, edges, options);
+  const W = drawn.bounds.w;
+  const H = drawn.bounds.h;
+  const svg = s('svg', { class: 'graph', role: 'img', 'aria-label': 'Dependency graph' }) as SVGSVGElement;
+  svg.append(arrowDefs(), drawn.group);
+  let vb: Rect = { ...drawn.bounds };
+  const apply = (): void => svg.setAttribute('viewBox', `${vb.x} ${vb.y} ${vb.w} ${vb.h}`);
+  apply();
+  panZoom(svg, () => vb, (r) => {
+    if (r.w > W * 4 || r.w < 120) return;
+    vb = r;
+    apply();
+  }, false);
+  const zoomBy = (k: number): void => {
+    svg.classList.add('zoomed');
+    const cx = vb.x + vb.w / 2;
+    const cy = vb.y + vb.h / 2;
+    vb = { x: cx - (vb.w * k) / 2, y: cy - (vb.h * k) / 2, w: vb.w * k, h: vb.h * k };
+    apply();
+  };
   const tools = h('div', { class: 'graph-tools' },
-    button('+', 'Zoom in', () => { svg.classList.add('zoomed'); zoom(0.8); }),
-    button('−', 'Zoom out', () => { svg.classList.add('zoomed'); zoom(1.25); }),
-    button('⤢', 'Fit', () => { svg.classList.remove('zoomed'); fit(); }),
+    toolButton('+', 'Zoom in', () => zoomBy(0.8)),
+    toolButton('−', 'Zoom out', () => zoomBy(1.25)),
+    toolButton('⤢', 'Fit', () => { svg.classList.remove('zoomed'); vb = { ...drawn.bounds }; apply(); }),
   );
-  const wrap = h('div', { class: 'graph-wrap', style: `aspect-ratio:${W} / ${H}` }, svg, tools);
-  return wrap;
+  return h('div', { class: 'graph-wrap', style: `aspect-ratio:${W} / ${H}` }, svg, tools);
 }

@@ -5,8 +5,10 @@ architecture: every product, entry point, folder, file and exported declaration,
 what is wrong. A static analyzer builds it, so it costs no model tokens and gives the same answer for the same commits.
 It is published to GitHub Pages as a static site with no dependencies.
 
-- **People** click from the platform map into a product, a folder, a file and a declaration, and see every link with
-  its evidence (file and line, linked to GitHub at the analysed commit).
+- **People** explore it on one stage: clicking a box zooms into it and its contents appear inside it, from the platform
+  to a product, a folder, a file and its declarations. A 3D depth map in the corner stacks the levels you came through,
+  with the links on each, and can take over the stage. Every link carries its evidence (file and line, linked to
+  GitHub at the analysed commit), and every node also has a details page.
 - **Agents** read `llms.txt`, `context/platform.md` and one Markdown page per repository and per file, or query the
   JSON with `node bin/arch.mjs`. See [docs/AGENTS.md](docs/AGENTS.md).
 - **CI** rebuilds it every six hours, on demand, and when a mapped repository sends a `smalt-updated` dispatch. Each
@@ -37,7 +39,7 @@ node bin/arch.mjs help     # the query tool
 | Link | `src/analyze/graph.ts` | Imports resolved across repositories through exports maps, pins, tsconfig paths and vendored copies; exports followed through re-exports to their declarations; who uses each declaration |
 | Check | `src/checks/index.ts` | The rules below |
 | Write | `src/emit/` | `data/*.json`, Markdown for agents, `llms.txt`, the history |
-| Show | `src/site/` | The app: plain TypeScript, stripped to JavaScript by smaltty at build time; layout and drawing are our own |
+| Show | `src/site/` | The app: plain TypeScript, stripped to JavaScript by smaltty at build time. Layout (`layout.ts`), the zooming explorer (`explorer.ts`, `levels.ts`) and the 3D map (`scene3d.ts`, a canvas projection) are our own |
 
 The model's shape is `src/model.ts`. Colours come from smalt-brand's `tokens.css`, copied at build time.
 

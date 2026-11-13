@@ -188,3 +188,58 @@ ul.members code { background: none; padding: 0; }
   .two { grid-template-columns: 1fr; }
   h1 { font-size: 23px; }
 }
+
+/* Explorer: one stage you zoom through, a side panel, and the 3D depth map. */
+body.exploring { height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
+body.exploring main { flex: 1; min-height: 0; }
+.explorer { height: 100%; display: flex; flex-direction: column; }
+.ex-bar { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-2) var(--space-6); border-bottom: 1px solid var(--border); background: var(--surface); flex-wrap: wrap; }
+.ex-crumbs { margin: 0; font-size: 14px; }
+.ex-crumbs [aria-current] { color: var(--text); font-weight: 600; }
+.ex-hint { margin: 0 0 0 auto; font-size: 12px; }
+.ex-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 360px; }
+.ex-stage { position: relative; min-height: 0; overflow: hidden; background: var(--bg); }
+.ex-svg { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; user-select: none; }
+.ex-svg:active { cursor: grabbing; }
+.ex-svg[hidden] { display: none; }
+.ex-svg .edge, .ex-svg .node-box { vector-effect: non-scaling-stroke; }
+.ex-svg .node-box { fill: var(--surface); }
+.node.selected .node-box { stroke: var(--accent); stroke-width: 2.5; }
+.node.zoom-target .node-box { stroke: var(--primary); stroke-width: 2.5; }
+.ex-stage .graph-tools { z-index: 2; }
+.ex-mini { position: absolute; right: var(--space-3); bottom: var(--space-3); width: 280px; height: 210px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: 0 8px 28px rgb(0 0 0 / 0.16); overflow: hidden; z-index: 2; }
+.ex-mini .scene3d { width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
+.ex-mini-expand { position: absolute; top: 6px; right: 6px; min-width: 26px; height: 26px; font-size: 14px; }
+.ex-mini-label { position: absolute; top: 9px; left: 10px; font: 600 11px var(--font-sans); color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; pointer-events: none; }
+.ex-stage.is-3d .ex-mini { display: none; }
+.ex-full3d { position: absolute; inset: 0; }
+.ex-full3d[hidden] { display: none; }
+.ex-full3d .scene3d { width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
+.ex-panel { overflow: auto; padding: var(--space-4) var(--space-4) var(--space-8); border-left: 1px solid var(--border); background: var(--surface); font-size: 14px; }
+.ex-panel h2 { font-size: 18px; margin-bottom: var(--space-2); overflow-wrap: anywhere; }
+.ex-panel h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-3); margin-top: var(--space-6); }
+.ex-panel .toggles { margin-top: var(--space-4); }
+.ex-panel .doc { font-size: 13px; }
+.ex-panel ul.layers li { padding: 4px 0; }
+.swatch-dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.actions { display: flex; gap: var(--space-2); flex-wrap: wrap; margin: var(--space-3) 0; }
+.button { display: inline-block; padding: 5px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text); text-decoration: none; font-size: 13px; background: var(--surface); }
+.button:hover { background: var(--code-bg); }
+.button.primary { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
+.issues.compact .issue { padding: var(--space-2); }
+.issues.compact .issue p { font-size: 13px; }
+.explore-link { margin-left: auto; font-weight: 600; }
+
+@media (max-width: 900px) {
+  body.exploring { height: auto; overflow: visible; display: block; }
+  .explorer { height: auto; }
+  .ex-body { grid-template-columns: 1fr; }
+  .ex-stage { height: 64dvh; }
+  .ex-panel { border-left: 0; border-top: 1px solid var(--border); }
+  .ex-mini { width: 170px; height: 130px; }
+  .ex-hint { display: none; }
+  .ex-bar { padding: var(--space-2) var(--space-4); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .edge { transition: none; }
+}

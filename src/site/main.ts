@@ -4,8 +4,12 @@ import type { Changes } from '../emit/data.js';
 import { loadIndex, loadJson, loadSearch } from './data.js';
 import { code, h, link, nodeHref, plural } from './dom.js';
 import { issueItem, nodeView, platformView } from './views.js';
+import { Explorer } from './explorer.js';
 
 const app = document.getElementById('app')!;
+/** Search results open in the explorer where it can show them, else on their page. */
+const hrefFor = (row: string[]): string => (['repo', 'dir', 'file', 'symbol'].includes(row[2]!) ? `#/e/${encodeURIComponent(row[0]!)}` : nodeHref(row[0]!));
+
 const KIND_WEIGHT: Record<string, number> = { repo: 50, entry: 40, symbol: 20, dir: 15, file: 10 };
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -70,7 +74,7 @@ function initSearch(input: HTMLInputElement, results: HTMLElement): void {
   };
   const render = (): void => {
     results.replaceChildren(...shown.map((r, i) => h('li', { role: 'option', id: `opt-${i}`, class: i === active ? 'active' : '', 'aria-selected': i === active ? 'true' : 'false' },
-      h('a', { href: nodeHref(r[0]!), onclick: close }, h('span', { class: `chip kind-${r[2]}` }, r[2]!), ' ', h('strong', null, r[1]!), ' ', h('span', { class: 'muted' }, r[2] === 'repo' ? r[4]! : `${r[3]} · ${r[4]}`)))));
+      h('a', { href: hrefFor(r), onclick: close }, h('span', { class: `chip kind-${r[2]}` }, r[2]!), ' ', h('strong', null, r[1]!), ' ', h('span', { class: 'muted' }, r[2] === 'repo' ? r[4]! : `${r[3]} · ${r[4]}`)))));
     results.hidden = shown.length === 0;
     input.setAttribute('aria-expanded', String(!results.hidden));
     if (active >= 0) input.setAttribute('aria-activedescendant', `opt-${active}`);
@@ -100,7 +104,7 @@ function initSearch(input: HTMLInputElement, results: HTMLElement): void {
     } else if (ev.key === 'Enter') {
       const pick = shown[active >= 0 ? active : 0];
       if (pick) {
-        location.hash = nodeHref(pick[0]!);
+        location.hash = hrefFor(pick);
         input.value = '';
         shown = [];
         close();
@@ -213,6 +217,12 @@ function agentsView(idx: IndexData): HTMLElement {
 // ---------------------------------------------------------------------------------------------------------------
 // Routing
 
+let explorer: Explorer | null = null;
+
+function markNav(path: string): void {
+  for (const a of document.querySelectorAll('.site-nav a')) a.toggleAttribute('aria-current', a.getAttribute('href') === `#${path}`);
+}
+
 async function route(): Promise<void> {
   const hash = location.hash.replace(/^#/, '') || '/';
   const [path, query] = hash.split('?') as [string, string | undefined];
@@ -220,17 +230,33 @@ async function route(): Promise<void> {
   app.setAttribute('aria-busy', 'true');
   try {
     const idx = await loadIndex();
+    // The explorer stays on the page between its routes, so moving through it animates instead of reloading.
+    if (path === '/' || path.startsWith('/e/')) {
+      const id = path.startsWith('/e/') ? decodeURIComponent(path.slice(3)) : '';
+      const fresh = !explorer || !explorer.el.isConnected;
+      if (fresh) {
+        explorer = new Explorer(idx);
+        app.replaceChildren(explorer.el);
+        document.body.classList.add('exploring');
+      }
+      markNav('/');
+      app.removeAttribute('aria-busy');
+      await explorer!.go(id, params.get('view') === '3d');
+      return;
+    }
+    document.body.classList.remove('exploring');
     let view: HTMLElement;
     if (path.startsWith('/n/')) view = await nodeView(idx, decodeURIComponent(path.slice(3)));
+    else if (path === '/overview') view = platformView(idx);
     else if (path === '/issues') view = issuesView(idx, params);
     else if (path === '/changes') view = await changesView();
     else if (path === '/rules') view = rulesView(idx);
     else if (path === '/agents') view = agentsView(idx);
-    else view = platformView(idx);
+    else view = h('div', { class: 'page' }, h('h1', null, 'Not found'), h('p', null, h('a', { href: '#/' }, 'Explore the platform')));
     app.replaceChildren(view);
     const title = view.querySelector('h1')?.textContent;
-    document.title = title && path !== '/' ? `${title} · ${idx.title}` : idx.title;
-    for (const a of document.querySelectorAll('.site-nav a')) a.toggleAttribute('aria-current', a.getAttribute('href') === `#${path}` || (path === '/' && a.getAttribute('href') === '#/'));
+    document.title = title ? `${title} · ${idx.title}` : idx.title;
+    markNav(path.startsWith('/n/') ? '' : path);
   } catch (e) {
     app.replaceChildren(h('div', { class: 'page' }, h('h1', null, 'Could not load'), h('p', null, String((e as Error).message ?? e))));
   }
