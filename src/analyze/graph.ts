@@ -6,10 +6,10 @@ import { builtinModules } from 'node:module';
 import type { Config } from '../config.js';
 import {
   ids, importPath, type ApiItem, type Dependency, type DirNode, type Edge, type EdgeKind, type EntryNode, type Evidence,
-  type ExternalNode, type FileNode, type ImportRef, type Intent, type Issue, type RepoNode, type SymbolNode,
+  type ExternalNode, type FileNode, type ImportRef, type Intent, type Issue, type RepoNode, type SymbolNode, type Trace,
 } from '../model.js';
 import { extract, vueScript, type Smaltty } from './extract.js';
-import { fileRole, fileSize, lineOfText, MAX_PARSE_BYTES, readFamilyTable, readRepo, type RepoOnDisk } from './repo.js';
+import { churn, commitInfo, fileRole, fileSize, git, lineOfText, MAX_PARSE_BYTES, readFamilyTable, readRepo, type RepoOnDisk } from './repo.js';
 
 const BUILTINS = new Set(builtinModules);
 const MAX_EVIDENCE = 25;
@@ -39,6 +39,8 @@ export interface Model {
   readonly unresolved: { file: string; ref: ImportRef }[];
   /** Imports of a family package by a path its exports map does not offer. */
   readonly deepImports: { file: string; ref: ImportRef; pkg: string }[];
+  /** Named paths through the code, from intent files. */
+  readonly traces: Trace[];
 }
 
 /** `@scope/name/sub` → [`@scope/name`, `./sub`]. */
@@ -141,6 +143,8 @@ export interface BuildOptions {
   readonly reposDir: string;
   readonly intentDir: string;
   readonly log?: (line: string) => void;
+  /** Read git history (change counts, pin ages). Off for the time-lapse's past days. */
+  readonly history?: boolean;
 }
 
 export function buildModel(config: Config, smaltty: Smaltty, options: BuildOptions): Model {
@@ -250,6 +254,7 @@ export function buildModel(config: Config, smaltty: Smaltty, options: BuildOptio
     return d;
   };
   const rawExports = new Map<string, ReturnType<typeof extract>['exports']>();
+  const rawRefs = new Map<string, string[]>();
   for (const repo of repos) {
     const d = disk.get(repo.name)!;
     ensureDir(repo.name, '');
@@ -273,6 +278,7 @@ export function buildModel(config: Config, smaltty: Smaltty, options: BuildOptio
         const sid = ids.symbol(id, s.name);
         if (symbols.has(sid)) continue;
         symbols.set(sid, { id: sid, kind: 'symbol', repo: repo.name, file: id, name: s.name, symbolKind: s.kind, exported: s.exported, line: s.line, endLine: s.endLine, signature: s.signature, doc: s.doc, members: s.members?.length ? s.members : undefined, usedBy: [] });
+        if (s.refs?.length) rawRefs.set(sid, s.refs);
         symbolIds.push(sid);
       }
       rawExports.set(id, x.exports);
@@ -470,6 +476,53 @@ export function buildModel(config: Config, smaltty: Smaltty, options: BuildOptio
     }
   }
 
+  // Calls: each declaration's references, resolved to declarations here or, through imports, elsewhere.
+  for (const [sid, names] of rawRefs) {
+    const sym = symbols.get(sid)!;
+    const file = files.get(sym.file)!;
+    const calls = new Set<string>();
+    for (const name of names) {
+      const local = ids.symbol(file.id, name);
+      if (symbols.has(local)) {
+        calls.add(local);
+        continue;
+      }
+      for (const ref of file.imports) {
+        const n = ref.names.find((x) => x.local === name);
+        if (!n || !ref.targetFile || n.imported === '*') continue;
+        const target = exportsOf(ref.targetFile).get(n.imported)?.symbol;
+        if (target) calls.add(target);
+        break;
+      }
+    }
+    calls.delete(sid);
+    if (calls.size) sym.calls = [...calls];
+  }
+
+  // History: commits per repository and per file, and how old each commit pin is.
+  for (const repo of options.history === false ? [] : repos) {
+    const d = disk.get(repo.name)!;
+    const commits = Number(git(d.dir, 'rev-list', '--count', 'HEAD'));
+    const first = git(d.dir, 'log', '--max-parents=0', '--format=%cI', 'HEAD').split('\n').sort()[0] ?? '';
+    if (commits > 0) repo.history = { commits, first, last: d.date };
+    if (git(d.dir, 'rev-parse', '--is-shallow-repository') === 'true') continue; // no history to read
+    const perFile = churn(d.dir);
+    for (const f of files.values()) {
+      if (f.repo !== repo.name) continue;
+      const c = perFile.get(f.path);
+      if (c) f.churn = c;
+    }
+  }
+  for (const repo of options.history === false ? [] : repos) {
+    for (const dep of repo.dependencies) {
+      if (!dep.ref || !dep.repo) continue;
+      const info = commitInfo(disk.get(dep.repo)!.dir, dep.ref);
+      dep.refDate = info.date;
+      dep.behind = info.behind;
+      dep.onMain = info.onMain;
+    }
+  }
+
   // File-level edges.
   const fileEdges: Edge[] = [];
   const edgeIndex = new Map<string, Edge>();
@@ -500,7 +553,8 @@ export function buildModel(config: Config, smaltty: Smaltty, options: BuildOptio
     const d = disk.get(repo.name)!;
     for (const dep of repo.dependencies) {
       if (!dep.repo || dep.repo === repo.name) continue;
-      const kind: EdgeKind = dep.source === 'packed.json' ? 'packed' : dep.ref ? 'pin' : dep.dev ? 'dev' : 'npm';
+      // A devDependency is tooling, pinned or not: only runtime pins are 'pin'.
+      const kind: EdgeKind = dep.source === 'packed.json' ? 'packed' : dep.dev ? 'dev' : dep.ref ? 'pin' : 'npm';
       const text = dep.source === 'packed.json' ? d.packedText : d.pkgText;
       addEdge(repoEdges, repoIndex, repo.id, dep.repo, kind, { at: repo.id, line: lineOfText(text, `"${dep.name}"`), text: `${dep.source}: "${dep.name}": "${dep.spec}"` });
     }
@@ -522,5 +576,14 @@ export function buildModel(config: Config, smaltty: Smaltty, options: BuildOptio
     }
   }
 
-  return { config, disk, repos, entries, dirs, files, symbols, externals, packages, fileEdges, repoEdges, issues: [], unresolved, deepImports };
+  // Dependents and hot spots: change (lines over the file's history) weighted by how many files import it.
+  const importers = new Map<string, Set<string>>();
+  for (const e of fileEdges) if (files.has(e.to)) (importers.get(e.to) ?? importers.set(e.to, new Set()).get(e.to)!).add(e.from);
+  for (const f of files.values()) {
+    f.dependents = importers.get(f.id)?.size ?? 0;
+    if (f.churn && f.role === 'src') f.hotspot = Math.round(Math.log2(1 + f.churn.lines) * Math.log2(2 + f.dependents) * 10) / 10;
+  }
+
+  const traces: Trace[] = repos.flatMap((r) => (r.intent?.traces ?? []).map((t) => ({ ...t, repo: r.name })));
+  return { config, disk, repos, entries, dirs, files, symbols, externals, packages, fileEdges, repoEdges, issues: [], unresolved, deepImports, traces };
 }

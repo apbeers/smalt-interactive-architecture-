@@ -9,5 +9,45 @@
   "notes": [
     "Plugins live in their own repositories (ADR 0012); core never imports one.",
     "SQL in tests, benchmarks and browser tests comes from the @smaltworks/smaltql pin in packed.json."
+  ],
+  "traces": [
+    {
+      "name": "Opening a database",
+      "about": "From open() on the main thread to the engine worker, its server and the files in OPFS. Each step is an import or a worker start in the code.",
+      "steps": [
+        {
+          "node": "smaltdb/src/client/index.ts#open",
+          "note": "open(name, options) on the main thread: the client API"
+        },
+        {
+          "node": "smaltdb/src/client/index.ts#makeWorker",
+          "note": "Starts the engine worker: new Worker(new URL('./smaltdb-worker.js', import.meta.url))"
+        },
+        {
+          "node": "smaltdb/src/engine/worker.ts",
+          "note": "The worker's entry point, built to smaltdb-worker.js (the ./worker export)"
+        },
+        {
+          "node": "smaltdb/src/engine/worker-runtime.ts",
+          "note": "The worker runtime: sets up the VFS, plugins and the server"
+        },
+        {
+          "node": "smaltdb/src/shared/protocol.ts",
+          "note": "The messages the client and the worker exchange"
+        },
+        {
+          "node": "smaltdb/src/engine/server.ts#EngineServer",
+          "note": "Answers the client's requests"
+        },
+        {
+          "node": "smaltdb/src/engine/database.ts",
+          "note": "The database the server opens"
+        },
+        {
+          "node": "smaltdb/src/engine/vfs/opfs.ts",
+          "note": "Where the data lives: files in the Origin Private File System"
+        }
+      ]
+    }
   ]
 }

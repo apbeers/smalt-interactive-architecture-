@@ -11,10 +11,15 @@ in at run time, a message sent to a worker, a page that loads another by URL). O
   "runtime": [
     { "from": "smaltql", "to": "entry:smaltdb/language", "note": "How and when, in a few words" }
   ],
-  "notes": ["Anything an agent should know before changing it"]
+  "notes": ["Anything an agent should know before changing it"],
+  "traces": [
+    { "name": "Opening a database", "about": "What it shows", "steps": [{ "node": "smaltdb/src/client/index.ts#open", "note": "What happens here" }] }
+  ]
 }
 ```
 
 `from` and `to` are node ids (see docs/AGENTS.md). A runtime link between repositories is drawn on the platform map
 as "Runtime wiring"; the `stale-intent` check reports any id that no longer exists, so these files can't quietly go
-out of date. Write only what the repository's own docs, CLAUDE.md or ADRs say: this is the map's ground truth.
+out of date. Write only what the repository's own docs, CLAUDE.md or ADRs say, or what its code shows: this is the
+map's ground truth. A trace is a path through the code the site animates step by step (the Trace view): each step
+should follow from the one before by an import, a call or a worker start.

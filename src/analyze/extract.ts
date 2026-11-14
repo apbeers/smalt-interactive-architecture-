@@ -18,6 +18,8 @@ export interface Tree {
 
 export interface Smaltty {
   parse(text: string, options?: { fileName?: string }): Tree;
+  /** Which declaration each name means (smaltty/src/binder.ts). */
+  bind?(tree: Tree): { readonly symbolOf: Int32Array; readonly top?: { readonly file: ReadonlyMap<string, number> } };
   /** TypeScript to JavaScript: types become spaces, so lines and columns stay put. */
   strip(text: string, options?: { fileName?: string }): string;
   readonly KIND_NAMES: readonly string[];
@@ -56,6 +58,8 @@ export interface RawSymbol {
   readonly signature: string;
   readonly doc?: string;
   readonly members?: Member[];
+  /** Other top-level names of this file (its declarations and imports) that this declaration's body uses. */
+  readonly refs?: string[];
 }
 
 export interface Extracted {
@@ -183,6 +187,8 @@ class Reader {
   readonly exports: RawExport[] = [];
   readonly symbols: RawSymbol[] = [];
   readonly F: Readonly<Record<string, number>>;
+  /** Where each top-level declaration's text is, to find which one a reference sits in. */
+  readonly ranges: { name: string; start: number; end: number }[] = [];
 
   constructor(s: Smaltty, t: Tree) {
     this.s = s;
@@ -221,7 +227,51 @@ class Reader {
   read(doc: string | undefined): Extracted {
     for (const n of this.kids(this.t.root)) this.statement(n);
     this.scanCalls();
-    return { imports: this.imports, exports: this.exports, symbols: this.symbols, doc };
+    const refs = this.references();
+    const symbols = refs.size ? this.symbols.map((sym) => (refs.has(sym.name) ? { ...sym, refs: [...refs.get(sym.name)!] } : sym)) : this.symbols;
+    return { imports: this.imports, exports: this.exports, symbols, doc };
+  }
+
+  /**
+   * Per top-level declaration, the other top-level names its body uses, as smaltty's binder resolves them: a local that
+   * shadows a top-level name is not a use of it.
+   */
+  references(): Map<string, Set<string>> {
+    const out = new Map<string, Set<string>>();
+    if (!this.s.bind || !this.ranges.length) return out;
+    let b;
+    try {
+      b = this.s.bind(this.t);
+    } catch {
+      return out;
+    }
+    const top = b.top?.file;
+    if (!top) return out;
+    const ranges = [...this.ranges].sort((x, y) => x.start - y.start);
+    const t = this.t;
+    const ident = this.s.KIND_NAMES.indexOf('Identifier');
+    for (let n = 1; n < t.count; n++) {
+      if (t.kind[n] !== ident) continue;
+      const sym = b.symbolOf[n]!;
+      if (!sym) continue;
+      const name = this.text.slice(t.start[n]!, t.end[n]!);
+      if (top.get(name) !== sym) continue;
+      const at = t.start[n]!;
+      let lo = 0;
+      let hi = ranges.length - 1;
+      let hit = -1;
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        if (ranges[mid]!.start <= at) {
+          hit = mid;
+          lo = mid + 1;
+        } else hi = mid - 1;
+      }
+      const r = hit >= 0 ? ranges[hit] : undefined;
+      if (!r || at >= r.end || r.name === name) continue;
+      (out.get(r.name) ?? out.set(r.name, new Set()).get(r.name)!).add(name);
+    }
+    return out;
   }
 
   statement(n: number): void {
@@ -233,6 +283,7 @@ class Reader {
       const local = value && this.kind(value) === 'Identifier' ? this.src(value) : undefined;
       this.exports.push({ name: 'default', local: local ?? 'default', typeOnly: false });
       if (!local) {
+        this.ranges.push({ name: 'default', start: this.t.start[n]!, end: this.t.end[n]! });
         this.symbols.push({ name: 'default', kind: 'default', exported: true, line: this.line(n), endLine: lineOf(this.starts, this.t.end[n]!), signature: squash(this.src(n), 160), doc: docBefore(this.text, this.t.start[n]!) });
       }
       return;
@@ -308,6 +359,7 @@ class Reader {
     const doc = docBefore(this.text, this.t.start[n]!);
     const push = (name: string, kind: SymbolKind, signature: string, members?: Member[]): void => {
       this.symbols.push({ name, kind, exported, line: this.line(n), endLine: lineOf(this.starts, this.t.end[n]!), signature, doc, members });
+      this.ranges.push({ name, start: this.t.start[n]!, end: this.t.end[n]! });
       if (exported) this.exports.push({ name: isDefault ? 'default' : name, local: name, typeOnly: kind === 'interface' || kind === 'type' });
     };
     const nameOf = (): string | undefined => {

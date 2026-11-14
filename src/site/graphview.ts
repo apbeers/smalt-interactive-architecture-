@@ -48,7 +48,7 @@ export interface DrawnLevel {
   readonly nodeEls: Map<string, SVGElement>;
 }
 
-export const EDGE_KINDS = ['import', 'dev-import', 'type-import', 'dynamic-import', 'reexport', 'worker', 'npm', 'dev', 'pin', 'packed', 'runtime'];
+export const EDGE_KINDS = ['call', 'import', 'dev-import', 'type-import', 'dynamic-import', 'reexport', 'worker', 'npm', 'dev', 'pin', 'packed', 'runtime'];
 const CHAR = 7.2;
 
 export function layoutGraph(nodes: GNode[], edges: GEdge[], options: GraphOptions = {}): { layout: Layout; edges: GEdge[]; bounds: Rect } {
@@ -99,7 +99,9 @@ export function drawLevel(nodes: GNode[], edges: GEdge[], options: GraphOptions 
       if (label) group.append(s('text', { class: 'rank-label', x: row.x - 16, y: row.y + row.h / 2 + 4, 'text-anchor': 'end' }, label));
     }
   }
-  group.append(edgeLayer, nodeLayer);
+  // Flowing dots along each link, from importer to imported: shown when the SVG has the `flowing` class.
+  const flowLayer = s('g', { class: 'flows', 'aria-hidden': 'true' });
+  group.append(edgeLayer, flowLayer, nodeLayer);
 
   const max = Math.max(1, ...drawn.map((e) => e.weight));
   const edgeEls = new Map<string, SVGElement[]>();
@@ -109,7 +111,10 @@ export function drawLevel(nodes: GNode[], edges: GEdge[], options: GraphOptions 
     const width = 1 + 3 * Math.log(1 + e.weight) / Math.log(1 + max);
     const path = s('path', { d: edgePath(a, b), class: `edge edge-${e.kind}${e.muted ? ' outer' : ''}`, 'stroke-width': width.toFixed(2), 'marker-end': `url(#arrow-${e.kind})` }, s('title', null, e.title));
     edgeLayer.append(path);
-    for (const id of [e.from, e.to]) (edgeEls.get(id) ?? edgeEls.set(id, []).get(id)!).push(path);
+    const seconds = Math.max(0.9, 3.2 - Math.log2(1 + e.weight) * 0.45);
+    const flow = s('path', { d: edgePath(a, b), class: `flow edge-${e.kind}${e.muted ? ' outer' : ''}`, style: `animation-duration:${seconds.toFixed(2)}s` });
+    flowLayer.append(flow);
+    for (const id of [e.from, e.to]) (edgeEls.get(id) ?? edgeEls.set(id, []).get(id)!).push(path, flow);
   }
 
   const nodeEls = new Map<string, SVGElement>();
@@ -142,6 +147,7 @@ export function drawLevel(nodes: GNode[], edges: GEdge[], options: GraphOptions 
     group.classList.toggle('focused', id !== null);
     for (const [nid, el] of nodeEls) el.classList.toggle('lit', id !== null && (nid === id || !!neighbours.get(id)?.has(nid)));
     for (const el of edgeLayer.children) el.classList.remove('lit');
+    for (const el of flowLayer.children) el.classList.remove('lit');
     if (id) for (const el of edgeEls.get(id) ?? []) el.classList.add('lit');
   };
   for (const [id, el] of nodeEls) {

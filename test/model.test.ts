@@ -40,6 +40,9 @@ test('entry points, API, usage and edges', async () => {
   const kinds = model.repoEdges.filter((e) => e.from === 'app' && e.to === 'kit').map((e) => e.kind).sort();
   assert.deepEqual(kinds, ['import', 'pin']);
   assert.ok(model.externals.has('ext:leftpad') === false, 'declared but never imported');
+  // Calls: run uses greet and the Person type, both from the kit through its entry point, and b from its own repository.
+  assert.deepEqual([...model.symbols.get('app/src/main.ts#run')!.calls!].sort(), ['app/src/b.ts#b', 'kit/src/greet.ts#greet', 'kit/src/types.ts#Person']);
+  assert.deepEqual(model.symbols.get('kit/src/extra.ts#loud')!.calls, ['kit/src/greet.ts#greet']);
 });
 
 test('checks find what is wrong, with evidence', async () => {

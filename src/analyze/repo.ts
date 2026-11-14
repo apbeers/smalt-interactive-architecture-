@@ -53,9 +53,9 @@ export interface RepoOnDisk {
   readonly agentFiles: string[];
 }
 
-function git(dir: string, ...args: string[]): string {
+export function git(dir: string, ...args: string[]): string {
   try {
-    return execFileSync('git', args, { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    return execFileSync('git', args, { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 256 * 1024 * 1024 }).trim();
   } catch {
     return '';
   }
@@ -232,4 +232,43 @@ export function lineOfText(text: string | undefined, needle: string): number | u
   if (!text) return undefined;
   const i = text.indexOf(needle);
   return i < 0 ? undefined : text.slice(0, i).split('\n').length;
+}
+
+/** Per file, from `git log --numstat`: commits that touched it, lines added plus removed, the latest date. */
+export function churn(dir: string): Map<string, { commits: number; lines: number; last: string }> {
+  const out = new Map<string, { commits: number; lines: number; last: string }>();
+  const log = git(dir, 'log', '--no-merges', '--format=@%cI', '--numstat', 'HEAD');
+  let date = '';
+  for (const line of log.split('\n')) {
+    if (line.startsWith('@')) {
+      date = line.slice(1);
+      continue;
+    }
+    const m = /^(\d+|-)\t(\d+|-)\t(.+)$/.exec(line);
+    if (!m) continue;
+    let path = m[3]!;
+    // Renames: "dir/{old => new}/file" or "old => new".
+    path = path.replace(/\{[^}]* => ([^}]*)\}/, '$1').replace(/^.* => /, '').replace(/\/\//g, '/');
+    const c = out.get(path) ?? { commits: 0, lines: 0, last: date };
+    c.commits++;
+    c.lines += (m[1] === '-' ? 0 : Number(m[1])) + (m[2] === '-' ? 0 : Number(m[2]));
+    if (date > c.last) c.last = date;
+    out.set(path, c);
+  }
+  return out;
+}
+
+/** About a commit in `dir`'s history: when it was made, how far main has moved since, whether main contains it. */
+export function commitInfo(dir: string, ref: string): { date?: string; behind?: number; onMain?: boolean } {
+  if (!git(dir, 'cat-file', '-t', ref)) return {};
+  const date = git(dir, 'log', '-1', '--format=%cI', ref) || undefined;
+  const behind = Number(git(dir, 'rev-list', '--count', `${ref}..HEAD`));
+  let onMain = false;
+  try {
+    execFileSync('git', ['merge-base', '--is-ancestor', ref, 'HEAD'], { cwd: dir, stdio: 'ignore' });
+    onMain = true;
+  } catch {
+    onMain = false;
+  }
+  return { date, behind: Number.isFinite(behind) ? behind : undefined, onMain };
 }

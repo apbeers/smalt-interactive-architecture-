@@ -72,6 +72,7 @@ export function issuesFor(idx: IndexData, id: string, deep = false): Issue[] {
 }
 
 export const edgeKinds: Record<string, { label: string; about: string }> = {
+  call: { label: 'Call', about: 'Uses it (a call or a reference, resolved by smaltty\'s binder)' },
   import: { label: 'Code import', about: 'Source code imports it' },
   'dev-import': { label: 'Test or docs import', about: 'Tests, docs, benchmarks or scripts import it' },
   'type-import': { label: 'Type import', about: 'Imports types only (gone at run time)' },
@@ -86,3 +87,8 @@ export const edgeKinds: Record<string, { label: string; about: string }> = {
 };
 
 export type { Edge };
+
+/** Every repository's data (for whole-platform views: impact, traces). About a megabyte compressed; loaded once. */
+export async function loadAllRepos(idx: IndexData): Promise<RepoView[]> {
+  return Promise.all(idx.repos.filter((r) => r.stats.files > 0).map((r) => loadRepo(r.name) as Promise<RepoView>));
+}

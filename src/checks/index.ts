@@ -272,6 +272,11 @@ export function runChecks(model: Model): Issue[] {
   // Agents, parsing, intent.
   for (const repo of model.repos) {
     if (repo.stats.files > 0 && repo.agentFiles.length === 0) out.add('no-agent-file', 'info', repo.id, 'No CLAUDE.md or AGENTS.md: agents working here start without the family\'s rules.', { fix: 'Copy the working rules from smaltdb\'s CLAUDE.md and add what is particular to this repository.' });
+    for (const t of repo.intent?.traces ?? []) {
+      for (const step of t.steps) {
+        if (!nodeExists(model, step.node)) out.add('stale-intent', 'warning', repo.id, `Trace "${t.name}" in intent/${repo.name}.json names ${step.node}, which no longer exists.`, { fix: 'Update the trace to the code\'s current names.' });
+      }
+    }
     for (const l of repo.intent?.runtime ?? []) {
       for (const node of [l.from, l.to]) {
         if (!nodeExists(model, node)) out.add('stale-intent', 'warning', repo.id, `intent/${repo.name}.json names ${node}, which no longer exists.`, { fix: 'Update the intent file to the code\'s current names.' });

@@ -29,6 +29,7 @@ export class Explorer {
   private readonly full3d: El;
   private readonly scene: Scene3D;
   private readonly modeButton: HTMLButtonElement;
+  private readonly flowButton: HTMLButtonElement;
   private kinds = savedKinds();
   private path: string[] = [];
   private levels: Level[] = [];
@@ -51,6 +52,7 @@ export class Explorer {
     this.full3d = h('div', { class: 'ex-full3d', hidden: true });
     this.scene = new Scene3D(this.mini, (id) => this.pick3d(id));
     this.modeButton = toolButton('3D', 'Show the 3D map full size', () => this.toggle3d());
+    this.flowButton = toolButton('Flow', 'Animate the links: dots run from importer to imported', () => this.setFlow(!this.svg.classList.contains('flowing')));
     const expand = toolButton('⤢', 'Show the 3D map full size', () => this.toggle3d());
     expand.classList.add('ex-mini-expand');
     this.mini.append(expand, h('span', { class: 'ex-mini-label' }, 'Depth map'));
@@ -59,6 +61,7 @@ export class Explorer {
       toolButton('+', 'Zoom in', () => this.zoomBy(0.8)),
       toolButton('−', 'Zoom out', () => this.zoomBy(1.25)),
       toolButton('⌂', 'Fit (in 3D: back to the default angle)', () => this.fit()),
+      this.flowButton,
       this.modeButton,
     );
     this.stage = h('div', { class: 'ex-stage' }, this.svg, this.full3d, tools, this.mini);
@@ -67,6 +70,13 @@ export class Explorer {
       h('div', { class: 'ex-body' }, this.stage, this.panel),
     );
 
+    let flow = false;
+    try {
+      flow = localStorage.getItem('arch.flow') === '1';
+    } catch {
+      // not remembered
+    }
+    this.setFlow(flow && !reducedMotion());
     panZoom(this.svg, () => this.vb, (r) => {
       if (this.busy) return;
       this.userMoved = true;
@@ -170,6 +180,17 @@ export class Explorer {
       if (level.zoomable.has(id) || node.target) location.hash = exploreHref(target, this.view3d);
       else location.hash = exploreHref(level.kind === 'file' ? id : target, this.view3d);
       return;
+    }
+  }
+
+  private setFlow(on: boolean): void {
+    this.svg.classList.toggle('flowing', on);
+    this.flowButton.classList.toggle('on', on);
+    this.flowButton.setAttribute('aria-pressed', String(on));
+    try {
+      localStorage.setItem('arch.flow', on ? '1' : '0');
+    } catch {
+      // not remembered
     }
   }
 
@@ -407,6 +428,27 @@ export class Explorer {
       const sorted = [...list].sort((a, b) => order[a.severity] - order[b.severity]);
       return h('div', null, h('h3', null, `Issues (${list.length})`), h('ul', { class: 'issues compact' }, sorted.slice(0, 5).map((i) => issueItem(idx, i, deep))), list.length > 5 ? h('a', { href: `#/issues?repo=${encodeURIComponent(repoOf(idx, nid) ?? '')}` }, `All ${list.length}`) : null);
     };
+    const traceFrom = ((): string | null => {
+      try {
+        return sessionStorage.getItem('arch.traceFrom');
+      } catch {
+        return null;
+      }
+    })();
+    const tools = (nid: string): El => h('div', { class: 'actions tools' },
+      h('a', { class: 'button', href: `#/impact/${encodeURIComponent(nid)}` }, 'What breaks?'),
+      traceFrom && traceFrom !== nid
+        ? h('a', { class: 'button', href: `#/trace?from=${encodeURIComponent(traceFrom)}&to=${encodeURIComponent(nid)}` }, 'Trace to here')
+        : h('button', { type: 'button', class: 'button', onclick: (e: Event) => {
+          try {
+            sessionStorage.setItem('arch.traceFrom', nid);
+          } catch {
+            // not kept
+          }
+          (e.target as HTMLElement).textContent = 'Now pick where to trace to';
+        } }, 'Trace from here'),
+      nid.endsWith('/') || idx.repos.some((r) => r.id === nid) ? h('a', { class: 'button', href: `#/matrix?of=${encodeURIComponent(nid)}` }, 'Matrix') : null,
+    );
     const level = this.levels[this.levels.length - 1]!;
     const zoomHint = level.zoomable.has(id) && id !== level.id ? h('a', { class: 'button primary', href: exploreHref(id, this.view3d) }, 'Zoom in') : null;
 
@@ -440,6 +482,7 @@ export class Explorer {
           h('p', null, r.intent?.summary ?? r.positioning ?? r.description ?? ''),
           h('p', { class: 'muted' }, `${plural(r.stats.files, 'file')} · ${r.stats.loc.toLocaleString()} lines · ${plural(r.stats.exported, 'export')}`),
           h('div', { class: 'actions' }, zoomHint, detail(r.id), h('a', { class: 'button', href: r.url, target: '_blank', rel: 'noopener' }, 'GitHub')),
+          tools(r.id),
           entries.length ? h('div', null, h('h3', null, 'Entry points'), h('ul', { class: 'plain' }, entries.map((e) => h('li', null, link(e.id, e.name), ' ', h('span', { class: 'muted' }, String(e.api.length)))))) : null,
           uses.length ? h('div', null, h('h3', null, 'Its code imports'), h('p', null, uses.map((u, i) => [i ? ', ' : '', h('a', { href: exploreHref(u, this.view3d) }, u)]))) : null,
           usedBy.length ? h('div', null, h('h3', null, 'Imported by'), h('p', null, usedBy.map((u, i) => [i ? ', ' : '', h('a', { href: exploreHref(u, this.view3d) }, u)]))) : null,
@@ -451,6 +494,7 @@ export class Explorer {
         return h('div', null,
           h('h2', null, d.path + '/'), h('p', { class: 'muted' }, `${d.repo} · ${plural(d.files, 'file')} · ${d.loc.toLocaleString()} lines`),
           h('div', { class: 'actions' }, zoomHint, detail(d.id)),
+          tools(d.id),
           issues(d.id, true));
       }
       case 'file': {
@@ -460,7 +504,9 @@ export class Explorer {
           h('h2', null, f.name), h('p', { class: 'muted' }, `${f.repo}/${f.path}`),
           f.doc ? h('div', { class: 'doc' }, f.doc) : null,
           h('p', { class: 'muted' }, `${f.role} · ${f.loc.toLocaleString()} lines · ${plural(f.symbols.length, 'declaration')} · imports ${f.imports.length} · imported by ${importers}${f.tested === false ? ' · no test reaches it' : ''}`),
+          f.churn ? h('p', { class: 'muted' }, `${plural(f.churn.commits, 'commit')}, ${f.churn.lines.toLocaleString()} lines changed, last ${f.churn.last.slice(0, 10)}${f.hotspot ? ` · hot spot ${f.hotspot}` : ''}`) : null,
           h('div', { class: 'actions' }, zoomHint, detail(f.id), h('a', { class: 'button', href: sourceUrl(idx, f.id), target: '_blank', rel: 'noopener' }, 'Source')),
+          tools(f.id),
           issues(f.id, false));
       }
       case 'symbol': {
@@ -473,6 +519,12 @@ export class Explorer {
           h('pre', { class: 'sig' }, h('code', null, sym.signature)),
           sym.doc ? h('div', { class: 'doc' }, sym.doc) : null,
           h('div', { class: 'actions' }, detail(sym.id), h('a', { class: 'button', href: sourceUrl(idx, sym.file, sym.line), target: '_blank', rel: 'noopener' }, 'Source')),
+          tools(sym.id),
+          sym.calls?.length ? h('div', null, h('h3', null, `Uses (${sym.calls.length})`), h('ul', { class: 'plain' }, sym.calls.map((c) => h('li', null, h('a', { href: exploreHref(c, this.view3d) }, c.startsWith(sym.file + '#') ? c.split('#')[1]! : c))))) : null,
+          ((): El | null => {
+            const callers = found.repo.symbols.filter((x) => x.calls?.includes(sym.id));
+            return callers.length ? h('div', null, h('h3', null, `Used in this repository by (${callers.length})`), h('ul', { class: 'plain' }, callers.map((c) => h('li', null, h('a', { href: exploreHref(c.id, this.view3d) }, c.file === sym.file ? c.name : c.id))))) : null;
+          })(),
           sym.members?.length ? h('details', null, h('summary', null, plural(sym.members.length, 'member')), h('ul', { class: 'members' }, sym.members.map((m) => h('li', null, code(m.signature))))) : null,
           h('h3', null, `Used by (${sym.usedBy.length})`),
           sym.usedBy.length ? [...byRepo].map(([name, files]) => h('div', null, h('strong', null, name), h('ul', { class: 'plain' }, files.map((f) => h('li', null, h('a', { href: exploreHref(f, this.view3d) }, f.slice(name.length + 1))))))) : h('p', { class: 'muted' }, sym.exported ? 'Nothing in the family imports it.' : 'Not exported.'),

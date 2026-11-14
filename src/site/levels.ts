@@ -190,7 +190,16 @@ export function fileLevel(idx: IndexData, repo: RepoView, file: FileNode): Level
     nodes.push({ id: u, label: u.split('/').pop()!, sub: name === file.repo ? u.slice(name.length + 1, u.lastIndexOf('/')) || '/' : name, muted: true, rank: 0, target: u, color: name === file.repo ? 'var(--layer-kit)' : layerColor(idx, idx.repos.find((r) => r.name === name)?.layer ?? '') });
     for (const s of symbols) if (s.usedBy.includes(u)) edges.push({ from: u, to: s.id, kind: 'import', weight: 1, title: `${u} imports ${s.name}`, muted: true });
   }
-  return { id: file.id, kind: 'file', title: file.name, nodes, edges, options: { maxPerRow: 6 }, zoomable: new Set() };
+  // Calls between this file's declarations.
+  const here = new Set(symbols.map((x) => x.id));
+  for (const sym of symbols) {
+    for (const c of sym.calls ?? []) if (here.has(c)) edges.push({ from: sym.id, to: c, kind: 'call', weight: 1, title: `${sym.name} uses ${c.split('#')[1]}` });
+  }
+  // Ranks: rank symbols by their calls (callers above callees), users of the file above all.
+  const callRanks = rankNodes([...here], edges.filter((e) => e.kind === 'call'));
+  const deepest = Math.max(0, ...callRanks.values());
+  const ranked = nodes.map((n) => (here.has(n.id) ? { ...n, rank: 1 + (deepest < 6 ? callRanks.get(n.id)! : Math.round((callRanks.get(n.id)! * 5) / deepest)) } : n));
+  return { id: file.id, kind: 'file', title: file.name, nodes: ranked, edges, options: { maxPerRow: 6 }, zoomable: new Set() };
 }
 
 // ---------------------------------------------------------------------------------------------------------------

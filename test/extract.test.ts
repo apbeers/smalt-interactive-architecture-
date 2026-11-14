@@ -89,3 +89,12 @@ test('Vue script blocks keep their line numbers', () => {
   assert.equal(v.split('\n')[4], 'import x from "./x.js";');
   assert.equal(fileDoc('#!/usr/bin/env node\n/** Block doc. */\ncode();'), 'Block doc.');
 });
+
+test('references between declarations follow the binder, not names', async () => {
+  const src = "import { helper } from './h.js';\nexport const a = (): number => b() + helper();\nfunction b(): number { const a = 1; return a; }\nexport class C { m(): number { return b(); } }\n";
+  const x = extract(await smaltty(), src, 'r.ts');
+  const refs = Object.fromEntries(x.symbols.map((s) => [s.name, (s.refs ?? []).sort()]));
+  assert.deepEqual(refs.a, ['b', 'helper']);
+  assert.deepEqual(refs.b, [], 'the local `a` inside b shadows the top-level a');
+  assert.deepEqual(refs.C, ['b']);
+});

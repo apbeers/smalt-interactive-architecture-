@@ -5,6 +5,15 @@ import { loadIndex, loadJson, loadSearch } from './data.js';
 import { code, h, link, nodeHref, plural } from './dom.js';
 import { issueItem, nodeView, platformView } from './views.js';
 import { Explorer } from './explorer.js';
+import { cityView } from './city.js';
+import { cakeView } from './cake.js';
+import { impactView } from './impact.js';
+import { matrixView } from './matrix.js';
+import { pinsView } from './pins.js';
+import { timelineView } from './timeline.js';
+import { traceView } from './trace.js';
+import { hotspotsView } from './hotspots.js';
+import { hubView } from './hub.js';
 
 const app = document.getElementById('app')!;
 /** Search results open in the explorer where it can show them, else on their page. */
@@ -238,6 +247,7 @@ async function route(): Promise<void> {
         explorer = new Explorer(idx);
         app.replaceChildren(explorer.el);
         document.body.classList.add('exploring');
+        document.body.classList.remove('fullview');
       }
       markNav('/');
       app.removeAttribute('aria-busy');
@@ -245,8 +255,20 @@ async function route(): Promise<void> {
       return;
     }
     document.body.classList.remove('exploring');
+    // Views with a stage that fills the window.
+    const full = path === '/city' || path === '/layers' || path.startsWith('/impact/') || path === '/matrix';
+    document.body.classList.toggle('fullview', full);
     let view: HTMLElement;
     if (path.startsWith('/n/')) view = await nodeView(idx, decodeURIComponent(path.slice(3)));
+    else if (path === '/city') view = await cityView(idx, params);
+    else if (path === '/layers') view = cakeView(idx, params);
+    else if (path.startsWith('/impact/')) view = await impactView(idx, decodeURIComponent(path.slice(8)), params);
+    else if (path === '/matrix') view = await matrixView(idx, params);
+    else if (path === '/pins') view = pinsView(idx);
+    else if (path === '/timeline') view = await timelineView(idx, params);
+    else if (path === '/trace') view = await traceView(idx, params);
+    else if (path === '/hotspots') view = await hotspotsView(idx);
+    else if (path === '/views') view = hubView(idx);
     else if (path === '/overview') view = platformView(idx);
     else if (path === '/issues') view = issuesView(idx, params);
     else if (path === '/changes') view = await changesView();
@@ -256,7 +278,7 @@ async function route(): Promise<void> {
     app.replaceChildren(view);
     const title = view.querySelector('h1')?.textContent;
     document.title = title ? `${title} · ${idx.title}` : idx.title;
-    markNav(path.startsWith('/n/') ? '' : path);
+    markNav(['/city', '/timeline', '/issues', '/agents'].includes(path) ? path : path.startsWith('/n/') ? '' : '/views');
   } catch (e) {
     app.replaceChildren(h('div', { class: 'page' }, h('h1', null, 'Could not load'), h('p', null, String((e as Error).message ?? e))));
   }

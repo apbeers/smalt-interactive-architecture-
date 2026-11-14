@@ -6,7 +6,8 @@ import { loadConfig, parsePaths, ROOT } from './config.js';
 import { loadSmaltty } from './analyze/extract.js';
 import { buildModel } from './analyze/graph.js';
 import { ruleInfos, runChecks } from './checks/index.js';
-import { apiSnapshot, compare, indexData, loadPrevious, repoData, searchRows, writeJson, type Changes } from './emit/data.js';
+import { apiSnapshot, cityData, compare, indexData, loadPrevious, repoData, searchRows, writeJson, type Changes } from './emit/data.js';
+import { buildTimeline, frameOf } from './timeline.js';
 import { writeMarkdown } from './emit/markdown.js';
 
 const HELP = `node bin/run.mjs build [options]
@@ -16,6 +17,7 @@ const HELP = `node bin/run.mjs build [options]
   --out <dir>         the site (default _site)
   --previous <dir|url> the previous build's data/ or the live site, to report what changed
   --fail-on <level>   exit 1 if any issue is at this level or worse (error, warning)
+  --no-timeline       skip analysing past days (the time-lapse keeps the previous build's frames)
 `;
 
 const HISTORY_MAX = 200;
@@ -52,6 +54,12 @@ export async function main(args: string[]): Promise<number> {
   writeJson(join(data, 'changes.json'), changes);
   const history: Changes[] = [changes, ...(previous.history ?? [])].slice(0, HISTORY_MAX);
   writeJson(join(data, 'history.json'), history);
+  writeJson(join(data, 'city.json'), cityData(model, allIssues));
+  const latest = frameOf(model, allIssues, generatedAt);
+  const timeline = args.includes('--no-timeline')
+    ? { frames: [...(previous.timeline?.frames ?? []).filter((f) => f.date.length === 10), latest] }
+    : buildTimeline(config, smaltty, latest, { reposDir: paths.repos, workDir: join(paths.repos, '..', 'history'), intentDir: join(ROOT, 'intent'), days: 120, previous: previous.timeline?.frames, log: (l) => console.log(l) });
+  writeJson(join(data, 'timeline.json'), timeline);
   writeMarkdown(model, allIssues, changes, out);
   copyFileSync(join(ROOT, 'docs/AGENTS.md'), join(out, 'md/AGENTS.md'));
 

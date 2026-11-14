@@ -71,6 +71,12 @@ export interface Dependency {
   readonly ref?: string;
   /** Where it was found: package.json or packed.json. */
   readonly source: 'package.json' | 'packed.json';
+  /** For a commit pin, from the pinned repository's history: when the commit was made. */
+  refDate?: string;
+  /** Commits on the pinned repository's main since the pinned commit. */
+  behind?: number;
+  /** Whether the pinned commit is on main's history (false: a branch commit). */
+  onMain?: boolean;
 }
 
 export interface Adr {
@@ -86,8 +92,18 @@ export interface RuntimeLink {
   readonly note: string;
 }
 
+/** A path through the code, step by step, for the trace view: written in intent files or found by the site. */
+export interface Trace {
+  readonly name: string;
+  readonly about?: string;
+  readonly steps: { node: string; note?: string }[];
+  /** The repository whose intent file holds it. */
+  repo?: string;
+}
+
 export interface Intent {
   readonly summary?: string;
+  readonly traces?: Trace[];
   readonly responsibilities?: string[];
   readonly runtime?: RuntimeLink[];
   readonly notes?: string[];
@@ -116,6 +132,8 @@ export interface RepoNode {
   /** Instruction files for agents in the repository (CLAUDE.md, AGENTS.md). */
   readonly agentFiles: string[];
   readonly intent?: Intent;
+  /** From git: commits on main, and the first and latest commit dates. */
+  history?: { commits: number; first: string; last: string };
   readonly stats: { files: number; loc: number; byRole: Partial<Record<FileRole, { files: number; loc: number }>>; symbols: number; exported: number };
 }
 
@@ -182,6 +200,12 @@ export interface FileNode {
   readonly symbols: string[];
   /** Names this file exports and where each comes from (a symbol id, or a re-export). */
   readonly exports: { name: string; symbol?: string; from?: string; typeOnly: boolean }[];
+  /** From git: commits that changed the file, and lines added plus removed, over its history. */
+  churn?: { commits: number; lines: number; last: string };
+  /** Files (in any repository) that import this one. */
+  dependents?: number;
+  /** Change times reach: churn weighted by dependents. Where bugs tend to come from. */
+  hotspot?: number;
   /** For a source file with declarations: whether a test reaches it through imports. */
   tested?: boolean;
   /** Set when smaltty could not parse the file. */
@@ -211,6 +235,8 @@ export interface SymbolNode {
   readonly members?: Member[];
   /** Files that import this symbol, directly or through re-exports and entry points. */
   usedBy: string[];
+  /** Declarations (this file's or imported) that its body uses, as smaltty's binder resolves names. */
+  calls?: string[];
 }
 
 export interface ExternalNode {
@@ -243,6 +269,8 @@ export interface IndexData {
   readonly edges: Edge[];
   readonly issues: Issue[];
   readonly rules: RuleInfo[];
+  /** Named paths through the code, from intent files. */
+  readonly traces: Trace[];
 }
 
 /** data/repo/<name>.json: one repository's directories, files, symbols and file-level edges. */

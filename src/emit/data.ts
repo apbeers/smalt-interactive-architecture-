@@ -2,6 +2,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { Model } from '../analyze/graph.js';
+import type { Timeline } from '../timeline.js';
 import { SCHEMA_VERSION, type Edge, type IndexData, type Issue, type RepoData, type RuleInfo } from '../model.js';
 
 export function writeJson(path: string, value: unknown): void {
@@ -23,6 +24,7 @@ export function indexData(model: Model, issues: Issue[], rules: RuleInfo[], gene
     edges: model.repoEdges,
     issues,
     rules,
+    traces: model.traces,
   };
 }
 
@@ -88,6 +90,7 @@ export interface Previous {
   readonly index?: IndexData;
   readonly api?: ApiSnapshot;
   readonly history?: Changes[];
+  readonly timeline?: Timeline;
 }
 
 const edgeKey = (e: Edge): string => `${e.from} → ${e.to} (${e.kind})`;
@@ -153,7 +156,36 @@ export async function loadPrevious(where: string | undefined): Promise<Previous>
       return undefined;
     }
   };
-  const [index, api, history] = await Promise.all([read<IndexData>('index.json'), read<ApiSnapshot>('api.json'), read<Changes[]>('history.json')]);
+  const [index, api, history, timeline] = await Promise.all([read<IndexData>('index.json'), read<ApiSnapshot>('api.json'), read<Changes[]>('history.json'), read<Previous['timeline']>('timeline.json')]);
   if (index && index.schemaVersion !== SCHEMA_VERSION) return { history };
-  return { index, api, history };
+  return { index, api, history, timeline };
+}
+
+/**
+ * data/city.json, for the 3D city and the hot spots: one row per code file, and the imports between them, compact.
+ * files: [id, loc, exported declarations, tested (0 no, 1 yes, 2 not applicable), worst issue (0 none, 1 info, 2 warning,
+ * 3 error), lines changed, commits, dependents, role, hot spot]; links: [from index, to index, weight].
+ */
+export function cityData(model: Model, issues: Issue[]): { roles: string[]; files: (string | number)[][]; links: number[][] } {
+  const roles = ['src', 'test', 'bench', 'script', 'docs', 'example'];
+  const worst = new Map<string, number>();
+  const rank = { info: 1, warning: 2, error: 3 } as const;
+  for (const i of issues) {
+    const file = model.files.has(i.node) ? i.node : undefined;
+    if (file) worst.set(file, Math.max(worst.get(file) ?? 0, rank[i.severity]));
+  }
+  const list = [...model.files.values()];
+  const index = new Map(list.map((f, i) => [f.id, i]));
+  const files = list.map((f) => [
+    f.id, f.loc, f.symbols.filter((s) => model.symbols.get(s)?.exported).length, f.tested === undefined ? 2 : f.tested ? 1 : 0,
+    worst.get(f.id) ?? 0, f.churn?.lines ?? 0, f.churn?.commits ?? 0, f.dependents ?? 0, roles.indexOf(f.role), f.hotspot ?? 0,
+  ]);
+  const links: number[][] = [];
+  for (const e of model.fileEdges) {
+    if (e.kind === 'type-import') continue;
+    const a = index.get(e.from);
+    const b = index.get(e.to);
+    if (a !== undefined && b !== undefined) links.push([a, b, e.weight]);
+  }
+  return { roles, files, links };
 }

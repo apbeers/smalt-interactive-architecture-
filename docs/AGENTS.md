@@ -15,6 +15,14 @@ commits.
 4. Before moving a pin or changing an entry point, run `node bin/arch.mjs impact <repo or id>`: everything that
    depends on it, directly or not.
 
+## Where risk is
+
+- `data/city.json` has, per file: lines, exports, tested, worst issue, lines changed, commits, dependents, hot spot.
+  Files with a high hot spot score change often and much depends on them: change them with care and with tests.
+- Every declaration lists `calls` (what its body uses, resolved by smaltty's binder) as well as `usedBy`.
+- Each commit pin carries `refDate`, `behind` (commits on main since) and `onMain`.
+- Named traces (`data/index.json`, `traces`) walk a real path through the code, step by step.
+
 ## After a change
 
 Run the analyzer on your checkout (`node bin/run.mjs build --repos <dir with your checkouts>`) and compare
