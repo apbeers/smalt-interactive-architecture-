@@ -7,6 +7,7 @@ import { h, plural, s } from './dom.js';
 import { layoutGraph } from './graphview.js';
 import { edgePath } from './layout.js';
 import { platformLevel } from './levels.js';
+import { ruler } from './ruler.js';
 
 const KINDS = new Set(['import', 'npm', 'pin', 'runtime', 'worker']);
 const STEP_MS = 1300;
@@ -56,46 +57,28 @@ export async function timelineView(idx: IndexData, params: URLSearchParams): Pro
     nodeEls.set(n.id, { g, fill, sub, badge, badgeText, w: p.width });
   }
 
-  // Charts: total lines and warnings per day.
-  const CW = 1000;
-  const CH = 120;
   const totals = frames.map((f) => ({ loc: Object.values(f.repos).reduce((n, r) => n + r.loc, 0), warnings: Object.values(f.repos).reduce((n, r) => n + r.issues[0] + r.issues[1], 0), repos: Object.keys(f.repos).length }));
-  const maxTotal = Math.max(1, ...totals.map((t) => t.loc));
-  const maxWarn = Math.max(1, ...totals.map((t) => t.warnings));
-  const cx = (i: number): number => 40 + (i / Math.max(1, frames.length - 1)) * (CW - 60);
-  const chart = s('svg', { class: 'tl-chart', viewBox: `0 0 ${CW} ${CH + 30}`, role: 'img', 'aria-label': 'Lines of code and warnings over time' });
-  const line = (vals: number[], max: number, cls: string): SVGElement => s('path', { class: cls, d: vals.map((v, i) => `${i ? 'L' : 'M'}${cx(i)},${CH - (v / max) * (CH - 10)}`).join(' ') });
-  chart.append(
-    s('path', { class: 'tl-area', d: `M${cx(0)},${CH} ${totals.map((t, i) => `L${cx(i)},${CH - (t.loc / maxTotal) * (CH - 10)}`).join(' ')} L${cx(frames.length - 1)},${CH} Z` }),
-    line(totals.map((t) => t.loc), maxTotal, 'tl-line'),
-    line(totals.map((t) => t.warnings), maxWarn, 'tl-line warn'),
-    s('text', { x: 40, y: CH + 20, class: 'tl-axis' }, frames[0]!.date.slice(0, 10)),
-    s('text', { x: CW - 20, y: CH + 20, class: 'tl-axis', 'text-anchor': 'end' }, frames[frames.length - 1]!.date.slice(0, 10)),
-    s('text', { x: 44, y: 14, class: 'tl-axis' }, `lines of code (to ${maxTotal.toLocaleString()})`),
-    s('text', { x: 44, y: 28, class: 'tl-axis warn' }, `errors and warnings (to ${maxWarn})`),
-  );
-  const cursor = s('line', { y1: 0, y2: CH, class: 'tl-cursor' });
-  chart.append(cursor);
 
   const dateLabel = h('div', { class: 'tl-date' });
   const happened = h('div', { class: 'city-card tl-card' });
-  const slider = h('input', { type: 'range', min: 0, max: frames.length - 1, step: 0.01, value: 0, 'aria-label': 'Day' });
   let t = Number(params.get('day') ?? frames.length - 1);
   let playing = false;
   let last = 0;
   let raf = 0;
 
   const show = (pos: number): void => {
-    const i = Math.min(frames.length - 1, Math.floor(pos));
-    const k = pos - i;
+    // Sizes blend between the two days either side; what is there (repositories, links, counts) is the nearest day's.
+    const lo = Math.min(frames.length - 1, Math.floor(pos));
+    const k = pos - lo;
+    const i = Math.min(frames.length - 1, Math.round(pos));
     const a = frames[i]!;
-    const b = frames[Math.min(frames.length - 1, i + 1)]!;
+    const from = frames[lo]!;
+    const to = frames[Math.min(frames.length - 1, lo + 1)]!;
     const prev = i > 0 ? frames[i - 1] : undefined;
     for (const [id, el] of nodeEls) {
       const ra = a.repos[id];
-      const rb = b.repos[id];
-      const loc = (ra?.loc ?? 0) * (1 - k) + (rb?.loc ?? ra?.loc ?? 0) * k;
-      const present = !!ra || (k > 0.5 && !!rb);
+      const loc = (from.repos[id]?.loc ?? 0) * (1 - k) + (to.repos[id]?.loc ?? 0) * k;
+      const present = !!ra;
       el.g.classList.toggle('absent', !present);
       el.g.classList.toggle('born', !!ra && !!prev && !prev.repos[id]);
       el.fill.setAttribute('width', String(Math.max(0, (el.w - 10) * Math.sqrt(loc / maxLoc))));
@@ -111,10 +94,9 @@ export async function timelineView(idx: IndexData, params: URLSearchParams): Pro
       el.classList.toggle('absent', !now.has(key));
       el.classList.toggle('born', now.has(key) && !!prev && !before.has(key));
     }
-    const x = cx(pos);
-    cursor.setAttribute('x1', String(x));
-    cursor.setAttribute('x2', String(x));
-    slider.value = String(pos);
+    bar.set(pos);
+    if (i === shownDay) return;
+    shownDay = i;
     dateLabel.textContent = a.date.length > 10 ? `${a.date.slice(0, 10)} (now)` : a.date;
     // What happened that day.
     const born = Object.keys(a.repos).filter((r) => prev && !prev.repos[r]);
@@ -130,6 +112,28 @@ export async function timelineView(idx: IndexData, params: URLSearchParams): Pro
       goneLinks.length ? h('div', null, h('h3', null, 'Links gone'), h('ul', { class: 'plain' }, goneLinks.slice(0, 8).map((e) => h('li', { class: 'removed' }, e.split('|').slice(0, 2).join(' → '))))) : null,
     ].filter((x): x is HTMLElement => !!x));
   };
+  let shownDay = -1;
+  const bar = ruler({
+    labels: frames.map((f) => f.date),
+    series: [
+      { values: totals.map((x) => x.loc), label: `Lines (to ${Math.max(...totals.map((x) => x.loc)).toLocaleString()})`, cls: 'loc', area: true },
+      { values: totals.map((x) => x.warnings), label: `Errors, warnings (to ${Math.max(...totals.map((x) => x.warnings))})`, cls: 'warn' },
+    ],
+    markers: frames.flatMap((f, j) => {
+      const born = j ? Object.keys(f.repos).filter((r) => !frames[j - 1]!.repos[r]) : Object.keys(f.repos);
+      return born.length ? [{ at: j, label: `New: ${born.join(', ')}` }] : [];
+    }),
+    onGrab: () => {
+      stop();
+      stage.classList.add('scrubbing');
+    },
+    onChange: (pos) => {
+      t = pos;
+      show(pos);
+      if (Number.isInteger(pos)) stage.classList.remove('scrubbing');
+    },
+  });
+  const stage = h('div', { class: 'tl-stage' }, svg);
   const stop = (): void => {
     playing = false;
     playButton.textContent = 'Play';
@@ -155,19 +159,14 @@ export async function timelineView(idx: IndexData, params: URLSearchParams): Pro
     last = performance.now();
     raf = requestAnimationFrame(tick);
   } }, 'Play');
-  slider.addEventListener('input', () => {
-    stop();
-    t = Number(slider.value);
-    show(t);
-  });
   show(t);
   if (params.get('play') === '1') requestAnimationFrame(() => playButton.click());
 
-  return h('div', { class: 'view-page scroll' },
-    h('div', { class: 'view-bar' }, h('h1', null, 'Time-lapse'), playButton, slider, dateLabel,
+  return h('div', { class: 'view-page' },
+    h('div', { class: 'view-bar' }, h('h1', null, 'Time-lapse'), playButton, dateLabel,
       h('span', { class: 'muted' }, `${plural(frames.length, 'day')} of history, one frame per day`)),
-    h('div', { class: 'view-body' }, h('div', { class: 'tl-stage' }, svg), happened),
-    h('div', { class: 'tl-charts' }, chart),
-    h('p', { class: 'view-help muted' }, 'The bar under each repository grows with its code; new repositories and links glow on the day they appear. Each day is analysed from the repositories\' history by the same analyzer as today\'s map.'),
+    h('div', { class: 'view-body' }, stage, happened),
+    h('div', { class: 'tl-ruler' }, bar.el),
+    h('p', { class: 'view-help muted' }, 'Drag along the ruler to move through time, click to jump, or use the arrow keys (Shift for quarter days). The bar under each repository grows with its code; new repositories and links glow on the day they appear. Dots on the ruler mark days new repositories appeared.'),
   );
 }

@@ -256,7 +256,7 @@ async function route(): Promise<void> {
     }
     document.body.classList.remove('exploring');
     // Views with a stage that fills the window.
-    const full = path === '/city' || path === '/layers' || path.startsWith('/impact/') || path === '/matrix';
+    const full = path === '/city' || path === '/layers' || path.startsWith('/impact/') || path === '/matrix' || path === '/timeline';
     document.body.classList.toggle('fullview', full);
     let view: HTMLElement;
     if (path.startsWith('/n/')) view = await nodeView(idx, decodeURIComponent(path.slice(3)));
