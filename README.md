@@ -1,5 +1,11 @@
 # smalt architecture
 
+**Open it: [apbeers.github.io/smalt-interactive-architecture-](https://apbeers.github.io/smalt-interactive-architecture-/)**
+· [City](https://apbeers.github.io/smalt-interactive-architecture-/#/city)
+· [Time-lapse](https://apbeers.github.io/smalt-interactive-architecture-/#/timeline)
+· [All views](https://apbeers.github.io/smalt-interactive-architecture-/#/views)
+· For agents: [llms.txt](https://apbeers.github.io/smalt-interactive-architecture-/llms.txt)
+
 The smalt family's repositories ([stenhoor](https://github.com/stenhoor)'s main branches) as one interactive
 architecture: every product, entry point, folder, file and exported declaration, how they depend on each other, and
 what is wrong. A static analyzer builds it, so it costs no model tokens and gives the same answer for the same commits.

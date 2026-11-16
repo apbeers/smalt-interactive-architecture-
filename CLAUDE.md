@@ -12,7 +12,7 @@ A push to `main` rebuilds the site and publishes it to GitHub Pages (`.github/wo
 
 | Command | What it does |
 | --- | --- |
-| `node bin/run.mjs fetch` | Shallow checkouts under `.work/`, smaltty at `parser.ref` |
+| `node bin/run.mjs fetch` | Checkouts with history under `.work/`, smaltty at `parser.ref` |
 | `node bin/run.mjs build [--repos dir] [--parser dir]` | The site in `_site/` |
 | `npm test` | The analyzer's tests (`node --test`, smaltty from `.work/smaltty` or `SMALTTY_DIR`). Before every commit |
 | `node bin/arch.mjs help` | The query tool over `_site/data` |
