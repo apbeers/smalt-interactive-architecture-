@@ -30,7 +30,7 @@ export function pinsView(idx: IndexData): HTMLElement {
   const t1 = Math.max(...dates, Date.parse(idx.generatedAt)) + 86400000 / 4;
   const x = (iso: string): number => LEFT + ((Date.parse(iso) - t0) / (t1 - t0)) * (WIDTH - LEFT - RIGHT);
   const H = targets.length * LANE + 60;
-  const svg = s('svg', { class: 'pins-svg', viewBox: `0 0 ${WIDTH} ${H}`, role: 'img', 'aria-label': 'Commit pins against each repository\'s main' }) as SVGSVGElement;
+  const svg = s('svg', { class: 'pins-svg natural', width: WIDTH, height: H, viewBox: `0 0 ${WIDTH} ${H}`, role: 'img', 'aria-label': 'Commit pins against each repository\'s main' }) as SVGSVGElement;
 
   // Day ticks.
   const axis = s('g', { class: 'pins-axis' });

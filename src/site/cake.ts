@@ -100,8 +100,8 @@ export function cakeView(idx: IndexData, params: URLSearchParams): HTMLElement {
     if (hit) location.hash = `#/e/${encodeURIComponent(hit)}`;
   };
   const centreY = ((layers.length - 1) * SLAB_GAP) / 2;
-  const home = (): void => view.flyTo({ x: 0, y: centreY, z: 0 }, 260, 800, -0.5, 0.42);
-  view.cam = { target: { x: 0, y: centreY, z: 0 }, yaw: 0.6, pitch: 0.9, dist: 420 };
+  const home = (): void => view.flyTo({ x: 0, y: centreY, z: 0 }, 400, 800, -0.5, 0.42);
+  view.cam = { target: { x: 0, y: centreY, z: 0 }, yaw: 0.6, pitch: 0.9, dist: 640 };
   home();
 
   const list = upward.length

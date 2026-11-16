@@ -6,7 +6,7 @@ import { h, plural, s } from './dom.js';
 import { rankNodes } from './layout.js';
 import { levelFor, pathOf, PLATFORM, savedKinds } from './levels.js';
 
-const CELL = 18;
+const CELL = 22;
 
 export async function matrixView(idx: IndexData, params: URLSearchParams): Promise<HTMLElement> {
   const of = params.get('of') ?? PLATFORM;
@@ -31,7 +31,7 @@ export async function matrixView(idx: IndexData, params: URLSearchParams): Promi
   const labelW = Math.min(240, 40 + Math.max(...order.map((id) => label.get(id)!.length)) * 7);
   const W = labelW + n * CELL + 20;
   const Hh = labelW + n * CELL + 20;
-  const svg = s('svg', { class: 'matrix-svg', viewBox: `0 0 ${W} ${Hh}`, role: 'img', 'aria-label': 'Dependency matrix' }) as SVGSVGElement;
+  const svg = s('svg', { class: 'matrix-svg natural', width: W, height: Hh, viewBox: `0 0 ${W} ${Hh}`, role: 'img', 'aria-label': 'Dependency matrix' }) as SVGSVGElement;
   const grid = s('g', { transform: `translate(${labelW},${labelW})` });
   const info = h('div', { class: 'city-card' }, h('strong', null, 'Hover a cell'), h('p', { class: 'muted' }, 'Row imports column. Blue above the diagonal is the normal direction; red below it climbs against the order; outlined pairs are cycles.'));
   let back = 0;

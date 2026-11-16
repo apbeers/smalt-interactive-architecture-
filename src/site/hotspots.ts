@@ -21,7 +21,7 @@ export async function hotspotsView(idx: IndexData): Promise<HTMLElement> {
   const maxDeps = Math.max(1, ...rows.map((r) => r.dependents));
   const x = (v: number): number => L + (Math.log10(1 + v) / Math.log10(1 + maxLines)) * (W - L - 30);
   const y = (v: number): number => H - B - (Math.log10(1 + v) / Math.log10(1 + maxDeps)) * (H - B - 30);
-  const svg = s('svg', { class: 'hot-svg', viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Source files by change and by dependents' });
+  const svg = s('svg', { class: 'hot-svg natural', width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Source files by change and by dependents' });
   // The hot zone, and axes with powers of ten.
   svg.append(s('rect', { x: x(maxLines ** 0.6), y: 30, width: W - 30 - x(maxLines ** 0.6), height: y(maxDeps ** 0.45) - 30, class: 'hot-zone' }),
     s('text', { x: W - 36, y: 50, 'text-anchor': 'end', class: 'hot-zone-label' }, 'changes often, much depends on it'));

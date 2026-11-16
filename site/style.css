@@ -422,3 +422,10 @@ a:hover > .mx-label { fill: var(--primary); text-decoration: underline; }
   .tl-stage { height: 52dvh; }
   .tl-ruler { padding: var(--space-2) var(--space-3); }
 }
+
+/* Charts drawn at their natural size: one unit is one pixel. They shrink to fit a narrow screen but never grow past
+   it, so text stays the size it was drawn at on a wide one. */
+svg.natural { width: auto; height: auto; max-width: 100%; min-height: 0; max-height: none; margin: 0 auto; }
+.matrix-svg.natural { max-width: none; }
+.pins-svg.natural { min-width: 760px; }
+.matrix-stage, .trace-stage { padding: var(--space-4); }

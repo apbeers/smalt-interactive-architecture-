@@ -86,7 +86,7 @@ export async function traceView(idx: IndexData, params: URLSearchParams): Promis
   for (const st of trace.steps) if (!lanes.includes(groupOf(st.node))) lanes.push(groupOf(st.node));
   const W = Math.max(600, lanes.length * LANE + 40);
   const H = trace.steps.length * STEP + 80;
-  const svg = s('svg', { class: 'trace-svg', viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': `Trace: ${trace.name}` }) as SVGSVGElement;
+  const svg = s('svg', { class: 'trace-svg natural', width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': `Trace: ${trace.name}` }) as SVGSVGElement;
   lanes.forEach((lane, i) => {
     const repo = idx.repos.find((r) => r.name === lane.split('/')[0]);
     svg.append(s('rect', { x: 20 + i * LANE, y: 10, width: LANE - 16, height: H - 20, rx: 10, class: 'trace-lane', style: `stroke:${layerColor(idx, repo?.layer ?? '')}` }),
