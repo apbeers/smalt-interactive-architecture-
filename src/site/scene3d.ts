@@ -172,8 +172,9 @@ export class Scene3D {
     const z1 = v.x * sy + v.z * cy;
     const cp = Math.cos(this.pitch);
     const sp = Math.sin(this.pitch);
-    const y2 = v.y * cp - z1 * sp;
-    const z2 = v.y * sp + z1 * cp;
+    // The camera sits above, looking down: a higher plane is nearer.
+    const y2 = v.y * cp + z1 * sp;
+    const z2 = z1 * cp - v.y * sp;
     const persp = 7 / (7 + z2);
     return { sx: x1 * persp, sy: -y2 * persp, depth: z2 };
   }

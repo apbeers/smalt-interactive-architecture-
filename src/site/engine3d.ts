@@ -141,8 +141,9 @@ export class View3D {
     const z1 = x * sy + z * cy;
     const cp = Math.cos(pitch);
     const sp = Math.sin(pitch);
-    const y2 = y * cp - z1 * sp;
-    const z2 = y * sp + z1 * cp;
+    // The camera sits above the ground at angle `pitch`, looking down at the target: a higher point is nearer.
+    const y2 = y * cp + z1 * sp;
+    const z2 = z1 * cp - y * sp;
     const depth = Math.max(1e-3, dist + z2);
     return { sx: this.W / 2 + (x1 * this.focal) / depth, sy: this.H / 2 - (y2 * this.focal) / depth, depth };
   }
@@ -282,7 +283,7 @@ export class View3D {
         this.cam.target = { x: drag.cam.target.x - (dx * cy - (dy / sp) * sy) * k, y: drag.cam.target.y, z: drag.cam.target.z - (-dx * sy - (dy / sp) * cy) * k };
       } else {
         this.cam.yaw = drag.cam.yaw + dx * 0.006;
-        this.cam.pitch = Math.min(1.5, Math.max(0.12, drag.cam.pitch + dy * 0.005));
+        this.cam.pitch = Math.min(1.55, Math.max(0.05, drag.cam.pitch + dy * 0.005));
       }
       this.redraw();
     });

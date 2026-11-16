@@ -59,23 +59,29 @@ export function cakeView(idx: IndexData, params: URLSearchParams): HTMLElement {
     const surface = col('var(--surface)');
     const danger = col('var(--danger)');
     picks.length = 0;
+    const slabLabels: { text: string; at: Screen }[] = [];
+    const blockLabels: { text: string; at: Screen; lit: boolean }[] = [];
     // Slabs, bottom first (the camera looks down), each with its links' lower ends and blocks.
     const slabOrder = layers.map((l, i) => ({ l, i })).reverse();
     for (const { l, i } of slabOrder) {
       const y = (layers.length - 1 - i) * SLAB_GAP;
       const tint = mix(surface, col(layerColor(idx, l)), 0.22);
       view.box({ x0: -SLAB / 2, x1: SLAB / 2, z0: -SLAB / 4, z1: SLAB / 4, y0: y, y1: y + 1.2 }, tint, 0.9);
-      const at = view.project({ x: -SLAB / 2, y: y + 1.2, z: SLAB / 4 });
-      view.label(layerName(idx, l), { ...at, sx: at.sx - 8 }, rgba(text3), rgba(bg, 0.9), '700 12px system-ui, sans-serif', 'right');
+      // The slab's name goes beside its leftmost corner on screen, drawn after everything so nothing covers it.
+      const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => view.project({ x: (a! * SLAB) / 2, y: y + 1.2, z: (b! * SLAB) / 4 }));
+      const left = corners.reduce((m, c) => (c.sx < m.sx ? c : m), corners[0]!);
+      slabLabels.push({ text: layerName(idx, l), at: { ...left, sx: left.sx - 10, sy: left.sy + 4 } });
       const here = [...blocks].filter(([, b]) => b.layer === l).sort((p, q) => view.project(q[1].top).depth - view.project(p[1].top).depth);
       for (const [name, b] of here) {
         const lit = !hover || hover === name || links.some((k) => (k.e.from === hover && k.e.to === name) || (k.e.to === hover && k.e.from === name));
         const quad = view.box(b.box, col(layerColor(idx, l)), lit ? 1 : 0.3, hover === name ? rgba(col('var(--accent)')) : undefined);
         picks.push({ repo: name, quad, depth: view.project(b.top).depth });
         const t = view.project(b.top);
-        view.label(name, { ...t, sy: t.sy - 6 }, rgba(text, lit ? 1 : 0.4), rgba(bg, 0.85), '600 11px system-ui, sans-serif');
+        blockLabels.push({ text: name, at: { ...t, sy: t.sy - 6 }, lit });
       }
     }
+    for (const sl of slabLabels) view.label(sl.text, sl.at, rgba(text3), rgba(bg, 0.9), '700 12px system-ui, sans-serif', 'right');
+    for (const bl of blockLabels) view.label(bl.text, bl.at, rgba(text, bl.lit ? 1 : 0.4), rgba(bg, 0.85), '600 11px system-ui, sans-serif');
     // Links over everything: downward in the link colour, upward red and moving.
     const offset = -(now / 30) % 14;
     for (const l of links) {
